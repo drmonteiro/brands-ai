@@ -1,0 +1,20 @@
+# FastAPI & Server
+fastapi
+uvicorn[standard]
+python-multipart
+
+# LangChain & LLM
+langchain
+langchain-openai
+
+# Tavily Search
+tavily-python
+
+# Email
+resend
+
+# Utilities
+pydantic
+python-dotenv
+httpx
+aiohttp
