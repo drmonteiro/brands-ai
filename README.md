@@ -3,9 +3,39 @@
 ![Confeções Lança](https://img.shields.io/badge/Since-1973-1e293b)
 ![Next.js](https://img.shields.io/badge/Next.js-15-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)
-![LangGraph](https://img.shields.io/badge/LangGraph-Agentic%20AI-green)
+![Python](https://img.shields.io/badge/Python-3.12-green)
+![FastAPI](https://img.shields.io/badge/FastAPI-Async-teal)
 
 An intelligent, agentic lead generation ecosystem designed for **Confeções Lança**, a premium Portuguese garment manufacturer specializing in high-quality menswear since 1973.
+
+## 📁 Project Structure
+
+```
+confecos-lanca/
+├── frontend/                 # Next.js 15 React Application
+│   ├── app/                  # Next.js App Router pages
+│   ├── components/           # React components
+│   │   └── ui/               # shadcn/ui components
+│   ├── lib/                  # Utilities and types
+│   ├── public/               # Static assets
+│   ├── package.json          # Frontend dependencies
+│   ├── next.config.ts        # Next.js configuration
+│   ├── tailwind.config.ts    # Tailwind CSS configuration
+│   └── tsconfig.json         # TypeScript configuration
+│
+├── backend/                  # Python FastAPI Backend
+│   ├── agents/               # AI Agent implementations
+│   │   └── prospector.py     # Lead prospecting agent
+│   ├── services/             # Business services
+│   │   └── email_service.py  # Email sending service
+│   ├── main.py               # FastAPI application entry point
+│   ├── models.py             # Pydantic models
+│   ├── config.py             # Configuration management
+│   ├── requirements.txt      # Python dependencies
+│   └── venv/                 # Python virtual environment
+│
+└── README.md                 # This file
+```
 
 ## 🎯 Purpose
 
@@ -19,13 +49,18 @@ This application automates the discovery and qualification of boutique US menswe
 
 ### Tech Stack
 
+**Frontend:**
 - **Framework:** Next.js 15 (App Router)
 - **Language:** TypeScript
-- **AI Orchestration:** LangGraph.js
-- **Search API:** Tavily (optimized for LLM workflows)
 - **UI Components:** shadcn/ui + Tailwind CSS
+- **State Management:** React Hooks
+
+**Backend:**
+- **Framework:** FastAPI (Python 3.12+)
+- **AI Orchestration:** LangChain / LangGraph
+- **Search API:** Tavily (optimized for LLM workflows)
 - **Email:** Resend API
-- **State Management:** SQLite (LangGraph checkpointer)
+- **LLM:** Azure OpenAI GPT-4o
 
 ### Agentic Workflow
 
@@ -61,52 +96,82 @@ The system implements a sophisticated multi-node workflow:
 
 ### Prerequisites
 
-- Node.js 18+ and npm
+- **Node.js 18+** and npm
+- **Python 3.12+** and pip
 - Azure OpenAI API key and deployment (for LLM reasoning)
 - Tavily API key (for web searching)
 - Resend API key (for email sending)
 
 ### Installation
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd confecos-lanca
-   ```
+#### 1. Clone the repository
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+```bash
+git clone <repository-url>
+cd confecos-lanca
+```
 
-3. **Configure environment variables:**
-   
-   Create a `.env.local` file in the root directory:
-   ```env
-   # Azure OpenAI Configuration
-   AZURE_OPENAI_ENDPOINT=https://occmodels.openai.azure.com/
-   AZURE_OPENAI_API_KEY=your_azure_key_here
-   AZURE_OPENAI_DEPLOYMENT=gpt-4o
-   AZURE_OPENAI_API_VERSION=2024-08-01-preview
-   
-   # Tavily API Key for web searching
-   TAVILY_API_KEY=tvly-...
-   
-   # Resend API Key for email sending
-   RESEND_API_KEY=re_...
-   
-   # Email configuration
-   FROM_EMAIL=comercial@confecos-lanca.pt
-   ```
+#### 2. Setup Frontend
 
-4. **Run the development server:**
-   ```bash
-   npm run dev
-   ```
+```bash
+cd frontend
+npm install
+```
 
-5. **Open the application:**
-   
-   Navigate to [http://localhost:3000](http://localhost:3000)
+Create a `.env.local` file in the `frontend` directory:
+
+```env
+# Frontend doesn't need API keys - they're managed by the backend
+```
+
+#### 3. Setup Backend
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+Create a `.env` file in the `backend` directory:
+
+```env
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT=https://occmodels.openai.azure.com/
+AZURE_OPENAI_API_KEY=your_azure_key_here
+AZURE_OPENAI_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_API_VERSION=2024-08-01-preview
+
+# Tavily API Key for web searching
+TAVILY_API_KEY=tvly-...
+
+# Resend API Key for email sending
+RESEND_API_KEY=re_...
+
+# Email configuration
+FROM_EMAIL=comercial@confecos-lanca.pt
+```
+
+### Running the Application
+
+#### 1. Start the Backend (Terminal 1)
+
+```bash
+cd backend
+source venv/bin/activate
+uvicorn main:app --reload --port 8000
+```
+
+The API will be available at `http://127.0.0.1:8000`
+
+#### 2. Start the Frontend (Terminal 2)
+
+```bash
+cd frontend
+npm run dev
+```
+
+The application will be available at `http://localhost:3000`
 
 ## 💼 How to Use
 
@@ -114,7 +179,7 @@ The system implements a sophisticated multi-node workflow:
 
 1. Enter a US city name (e.g., "Boston", "Austin", "Portland")
 2. Click "Search" to initiate the agentic workflow
-3. Watch the **Progress Log** for real-time updates
+3. Watch the progress as the AI searches and validates brands
 
 ### Step 2: Review Results
 
@@ -137,108 +202,43 @@ For each qualified brand:
    - Sustainability commitment (renewable energy, waste management)
    - Flexibility (industrial scale + tailor-made models)
 
-### Step 4: Track Results
-
-The Progress Log records all email dispatches with timestamps.
-
 ## 🎨 Design Philosophy
 
 The UI follows a **professional, premium aesthetic** that mirrors Confeções Lança's brand values:
 
-- **Color Palette:** Navy (#1e293b), Charcoal, Silver
-- **Typography:** Clean, modern sans-serif (Inter)
+- **Color Palette:** Gold (#F5C518), Black (#1a1a1a), Cream (#FAF8F5)
+- **Typography:** DM Serif Display (headings) + Outfit (body)
 - **UX Principles:** Clear information hierarchy, instant feedback, minimal friction
 
-## 🔧 Configuration
+## 📊 API Endpoints
 
-### Adjusting Search Parameters
+### Backend Endpoints
 
-Edit `lib/agents/prospector.ts` to modify:
-
-```typescript
-export function createInitialState(city: string): ProspectorState {
-  return {
-    // ...
-    priceThresholdEUR: 500,  // Minimum suit price in EUR
-    maxStores: 20,           // Maximum store count
-    // ...
-  };
-}
-```
-
-### Customizing Email Templates
-
-Edit `app/api/approve-email/route.ts` in the `generateEmailHTML()` function.
-
-## 📊 Business Logic
-
-### Price Verification
-
-The system converts the €500 EUR threshold to USD using live exchange rates:
-
-```
-R_USD ≥ P_threshold × E_EUR/USD
-```
-
-For example, with an exchange rate of 1.08:
-- Minimum acceptable price = €500 × 1.08 = **$540 USD**
-
-### Store Count Validation
-
-The agent:
-1. Searches for "Store Locator", "Locations", "About Us" pages
-2. Counts physical addresses (not wholesale partnerships)
-3. Filters out brands with > 20 locations
-
-### Origin Verification
-
-The agent checks for indicators of international operations:
-- Multiple country offices
-- Non-US headquarters
-- International shipping policies
-
-## 🧪 Development Notes
-
-### Mock Data
-
-The current implementation includes **mock search results** for development. To integrate real data:
-
-1. **Add Tavily API integration** in `lib/agents/prospector.ts`:
-   ```typescript
-   import { TavilyClient } from 'tavily';
-   const tavily = new TavilyClient(process.env.TAVILY_API_KEY);
-   ```
-
-2. **Replace mock functions** with actual API calls in:
-   - `mockTavilySearch()` → Use `tavily.search()`
-   - `extractBrandInfo()` → Use `tavily.extract()` + LLM parsing
-
-### Human-in-the-Loop Implementation
-
-The current system implements a **simplified HITL** flow. For production:
-
-1. Add **LangGraph SqliteSaver** for state persistence:
-   ```typescript
-   import { SqliteSaver } from "@langchain/langgraph";
-   const checkpointer = SqliteSaver.fromConnString("./langgraph.db");
-   const graph = workflow.compile({ checkpointer });
-   ```
-
-2. Implement **interrupt-on** configuration for the email node
-
-3. Store `thread_id` in client state to resume workflows
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/prospect` | POST | Start brand prospecting (SSE stream) |
+| `/api/approve-email` | POST | Send partnership email to a brand |
+| `/api/health` | GET | Health check endpoint |
 
 ## 🌐 Deployment
 
-### Vercel (Recommended)
+### Frontend (Vercel)
 
 1. Push to GitHub
 2. Connect repository to Vercel
-3. Add environment variables in Vercel dashboard
+3. Set root directory to `frontend`
 4. Deploy
+
+### Backend (Railway / Render / AWS)
+
+1. Set root directory to `backend`
+2. Set build command: `pip install -r requirements.txt`
+3. Set start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+4. Add environment variables
 
 ### Environment Variables Required
 
+**Backend:**
 - `AZURE_OPENAI_ENDPOINT`
 - `AZURE_OPENAI_API_KEY`
 - `AZURE_OPENAI_DEPLOYMENT`
