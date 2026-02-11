@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { DM_Serif_Display, Outfit } from "next/font/google";
+import { Playfair_Display, Outfit } from "next/font/google";
 import "./globals.css";
 
-const dmSerif = DM_Serif_Display({
+const playfair = Playfair_Display({
   subsets: ["latin"],
-  weight: "400",
+  weight: ["400", "500", "600", "700"],
   variable: "--font-serif",
   display: "swap",
 });
@@ -17,12 +17,14 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "Confeções Lança - Lead Generation System",
-  description: "Agentic lead generation ecosystem for boutique US menswear retailers",
+  title: "Confeções Lança | Excellence in Menswear Since 1973",
+  description: "Bespoke agentic lead generation for the world's finest boutique retailers. Precision, heritage, and innovation in every stitch.",
   icons: {
     icon: "/lanca-logo.png",
   },
 };
+
+import { Sidebar } from "@/components/Sidebar";
 
 export default function RootLayout({
   children,
@@ -30,9 +32,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt" className={`${dmSerif.variable} ${outfit.variable}`}>
-      <body className="font-sans antialiased">
-        {children}
+    <html lang="pt" className={`${playfair.variable} ${outfit.variable} scroll-smooth`}>
+      <body className="font-sans antialiased text-foreground bg-[#FAF8F5]">
+        <div className="flex min-h-screen">
+          <Sidebar />
+          <main className="flex-1 overflow-y-auto">
+            {children}
+          </main>
+        </div>
       </body>
     </html>
   );

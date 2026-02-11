@@ -14,18 +14,25 @@ class Config:
     AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
     AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
     AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+    AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
     
     # Tavily
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
     
+    # Firecrawl
+    FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
+    
     # Resend
     RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-    FROM_EMAIL = os.getenv("FROM_EMAIL", "comercial@confecos-lanca.pt")
+    FROM_EMAIL = os.getenv("FROM_EMAIL", "onboarding@resend.dev")
     
     # LangSmith (optional)
     LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "false")
     LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY")
     LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "confecos-lanca")
+    
+    # Database
+    SYNC_DATABASE_URL = os.getenv("SYNC_DATABASE_URL")
     
     @classmethod
     def is_langsmith_enabled(cls) -> bool:

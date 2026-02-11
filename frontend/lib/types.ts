@@ -19,4 +19,10 @@ export interface BrandLead {
   brandStyle?: string;
   businessModel?: string;
   companyOverview?: string;
+  detailedDescription?: string;
+  locationQuality?: string;
+  locationScore?: number;
+  storeLocations?: string[];
+  woolPercentage?: string;
+  madeToMeasure?: boolean;
 }

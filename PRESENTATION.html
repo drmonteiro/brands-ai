@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brands AI | Confeções Lança Presentation</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@300;400;600&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --primary: #F5C518;
+            /* Gold */
+            --bg-dark: #0A192F;
+            /* Deep Navy */
+            --bg-card: #112240;
+            --text-light: #FAF8F5;
+            /* Cream */
+            --text-muted: #8892B0;
+            --accent: #64FFDA;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        h1,
+        h2,
+        h3 {
+            font-family: 'DM+Serif+Display', serif;
+            color: var(--primary);
+            letter-spacing: 1px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Hero Section */
+        header {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background: radial-gradient(circle at center, #112240 0%, #0A192F 100%);
+            position: relative;
+        }
+
+        .hero-title {
+            font-size: 5rem;
+            margin-bottom: 1rem;
+            animation: fadeInDown 1s ease-out;
+        }
+
+        .hero-subtitle {
+            font-size: 1.5rem;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin-bottom: 2rem;
+            animation: fadeInUp 1s ease-out 0.5s both;
+        }
+
+        .badge {
+            background-color: var(--primary);
+            color: var(--bg-dark);
+            padding: 0.5rem 1.5rem;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+            display: inline-block;
+        }
+
+        /* Section Styling */
+        section {
+            padding: 6rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .section-title {
+            font-size: 2.5rem;
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            padding: 2.5rem;
+            border-radius: 12px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--primary);
+        }
+
+        .card h3 {
+            font-size: 1.8rem;
+            margin-bottom: 1rem;
+        }
+
+        .card p {
+            color: var(--text-muted);
+        }
+
+        /* Visual Table */
+        .cost-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 2rem;
+            background: var(--bg-card);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .cost-table th,
+        .cost-table td {
+            padding: 1.5rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .cost-table th {
+            font-family: 'DM Serif Display', serif;
+            color: var(--primary);
+            background: rgba(245, 197, 24, 0.05);
+        }
+
+        .total-row {
+            background: rgba(245, 197, 24, 0.1);
+            font-weight: 600;
+            font-size: 1.2rem;
+        }
+
+        .total-row td {
+            color: var(--primary);
+        }
+
+        /* Mockup Container */
+        .mockup-container {
+            margin-top: 4rem;
+            text-align: center;
+        }
+
+        .mockup-image {
+            max-width: 100%;
+            border-radius: 12px;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Next Steps List */
+        .steps-list {
+            list-style: none;
+        }
+
+        .step-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            background: var(--bg-card);
+            padding: 1.5rem;
+            border-radius: 8px;
+        }
+
+        .step-number {
+            font-family: 'DM Serif Display', serif;
+            font-size: 2rem;
+            color: var(--primary);
+            margin-right: 2rem;
+            min-width: 50px;
+        }
+
+        /* Animations */
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-50px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(50px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .cta-button {
+            display: inline-block;
+            padding: 1rem 2.5rem;
+            background: var(--primary);
+            color: var(--bg-dark);
+            text-decoration: none;
+            font-weight: 600;
+            border-radius: 4px;
+            transition: all 0.3s;
+            margin-top: 2rem;
+        }
+
+        .cta-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 20px rgba(245, 197, 24, 0.3);
+        }
+
+        footer {
+            text-align: center;
+            padding: 4rem;
+            opacity: 0.6;
+            font-size: 0.9rem;
+        }
+
+        /* Image Placeholder styling (in case image tool hasn't finished yet or path needs fixing) */
+        .image-caption {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 1rem;
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div class="badge">CONFEÇÕES LANÇA • EST. 1973</div>
+        <h1 class="hero-title">Brands AI</h1>
+        <p class="hero-subtitle">The next evolution in premium menswear lead generation. Automated, intelligent, and
+            precisely targeted.</p>
+        <a href="#about" class="cta-button">Explore the Vision</a>
+    </header>
+
+    <div class="container">
+
+        <section id="about">
+            <h2 class="section-title">The "Non-Tech" Concept</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3>Your Digital Scout</h3>
+                    <p>Instead of manual searching, Brands AI scans entire cities (like Boston or London) in seconds to
+                        identify every menswear retailer that fits your DNA.</p>
+                </div>
+                <div class="card">
+                    <h3>The Quality Gatekeeper</h3>
+                    <p>The AI "visits" each website, checking if they sell suits above €500 and confirming they are
+                        independent boutiques, not massive chains.</p>
+                </div>
+                <div class="card">
+                    <h3>Seamless Outreach</h3>
+                    <p>When a match is found, the system drafts a professional proposal highlighting your 50 years of
+                        Portuguese manufacturing excellence.</p>
+                </div>
+            </div>
+
+            <div class="mockup-container">
+                <img src="mockup_dashboard.png" alt="Brands AI Interface" class="mockup-image">
+                <p class="image-caption">Visual Interface: Real-time analysis of qualified US brands.</p>
+            </div>
+        </section>
+
+        <section id="costs">
+            <h2 class="section-title">Transparent Cost Structure</h2>
+            <p style="text-align: center; margin-bottom: 2rem; color: var(--text-muted);">A fraction of the cost of
+                traditional lead generation agencies.</p>
+
+            <table class="cost-table">
+                <thead>
+                    <tr>
+                        <th>Infrastructure</th>
+                        <th>Function</th>
+                        <th>Est. Cost</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Tavily Search</td>
+                        <td>Web browsing & brand discovery</td>
+                        <td>$0.02 / find</td>
+                    </tr>
+                    <tr>
+                        <td>Azure OpenAI (GPT-4o)</td>
+                        <td>Deep analysis & validation</td>
+                        <td>$0.08 / lead</td>
+                    </tr>
+                    <tr>
+                        <td>Resend Outbound</td>
+                        <td>Email delivery</td>
+                        <td>$0.00 (Free Tier)</td>
+                    </tr>
+                    <tr class="total-row">
+                        <td>TOTAL PER QUALIFIED LEAD</td>
+                        <td></td>
+                        <td>~$0.10 USD</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div style="margin-top: 2rem; padding: 2rem; background: rgba(100, 255, 218, 0.05); border-radius: 8px;">
+                <p><strong>Efficiency Note:</strong> 1,000 qualified boutique leads cost less than $100 in A.I.
+                    consumption. A manual researcher would take months to find the same quality data.</p>
+            </div>
+        </section>
+
+        <section id="next-steps">
+            <h2 class="section-title">The Roadmap Ahead</h2>
+            <div class="steps-list">
+                <div class="step-item">
+                    <div class="step-number">01</div>
+                    <div>
+                        <h3>European Expansion</h3>
+                        <p>Launch targeted campaigns for London, Paris, and Munich retailers.</p>
+                    </div>
+                </div>
+                <div class="step-item">
+                    <div class="step-number">02</div>
+                    <div>
+                        <h3>Social Footprint Analysis</h3>
+                        <p>Analyze Instagram trends to identify "rising stars" in the menswear boutique scene.</p>
+                    </div>
+                </div>
+                <div class="step-item">
+                    <div class="step-number">03</div>
+                    <div>
+                        <h3>CRM Automation</h3>
+                        <p>Direct sync with your sales pipeline for immediate follow-up tracking.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <footer>
+        <p>Confeções Lança © 2024 • Proprietary Lead Generation Ecosystem</p>
+        <p style="margin-top: 10px;">Covilhã, Portugal</p>
+    </footer>
+
+</body>
+
+</html>

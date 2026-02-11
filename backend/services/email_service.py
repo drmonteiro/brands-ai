@@ -22,7 +22,7 @@ def get_contact_email(brand: BrandLead) -> str:
         domain = parsed.hostname or ""
         domain = domain.replace("www.", "")
         return f"info@{domain}"
-    except:
+    except Exception:
         return "info@example.com"
 
 
@@ -60,77 +60,65 @@ Confeções Lança • Established 1973 • Excellence in Portuguese Manufacturi
 
 
 def generate_email_html(brand: BrandLead) -> str:
-    """Generate HTML email content for partnership proposal"""
+    """Generate HTML email content for INTERNAL ALERT"""
     return f"""
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <style>
-    body {{ font-family: 'Georgia', serif; color: #1e293b; line-height: 1.6; }}
-    .container {{ max-width: 600px; margin: 0 auto; padding: 40px 20px; }}
-    .header {{ border-bottom: 2px solid #1e293b; padding-bottom: 20px; margin-bottom: 30px; }}
-    .logo {{ font-size: 24px; font-weight: bold; color: #1e293b; }}
-    .content {{ margin-bottom: 30px; }}
-    .signature {{ margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 20px; }}
-    .footer {{ text-align: center; color: #64748b; font-size: 12px; margin-top: 40px; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.6; }}
+    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; }}
+    .header {{ background-color: #f8fafc; padding: 15px; border-bottom: 1px solid #e2e8f0; margin-bottom: 20px; border-radius: 8px 8px 0 0; }}
+    .tag {{ display: inline-block; padding: 4px 8px; background-color: #e0f2fe; color: #0369a1; border-radius: 4px; font-size: 12px; font-weight: bold; }}
+    .metric {{ margin-bottom: 10px; }}
+    .label {{ font-weight: bold; color: #64748b; font-size: 14px; }}
+    .value {{ font-size: 16px; color: #0f172a; }}
+    .button {{ display: inline-block; background-color: #0f172a; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; margin-top: 20px; }}
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">Confeções Lança</div>
-      <div style="color: #64748b; font-size: 14px;">Since 1973 • Premium Portuguese Manufacturing</div>
+      <h2 style="margin:0; color: #0f172a;">🚀 Novo Potencial Cliente Detetado</h2>
     </div>
     
     <div class="content">
-      <p>Dear {brand.name} Team,</p>
+      <p>Olá Daniel e Carla,</p>
+      <p>Existe uma excelente oportunidade de negócio com o cliente <strong>{brand.name}</strong>.</p>
       
-      <p>
-        We are reaching out from <strong>Confeções Lança</strong>, a Portuguese garment manufacturer 
-        with over 50 years of excellence in producing superior quality menswear. We specialize in 
-        tailored suits, overcoats, vests, and trench coats using avant-garde production technologies 
-        and premium fabrics.
-      </p>
+      <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="margin-top:0;">{brand.name}</h3>
+        <p><a href="{brand.website_url}" target="_blank">{brand.website_url}</a></p>
+        
+        <div class="metric">
+          <span class="label">Cidade:</span><br>
+          <span class="value">{brand.city}, {brand.origin_country}</span>
+        </div>
+        
+        <div class="metric">
+          <span class="label">Preço Médio Fato:</span><br>
+          <span class="value">{f"€{brand.avg_suit_price_eur:.0f}" if brand.avg_suit_price_eur and brand.avg_suit_price_eur > 0 else f"${brand.average_suit_price_usd:.0f}"}</span>
+        </div>
+        
+        <div class="metric">
+          <span class="label">Estilo:</span><br>
+          <span class="value">{brand.brand_style}</span>
+        </div>
+
+        <div class="metric">
+          <span class="label">Descrição:</span><br>
+          <span class="value">{brand.company_overview}</span>
+        </div>
+      </div>
       
-      <p>
-        We have identified {brand.name} as an exceptional brand that shares our commitment to quality 
-        and craftsmanship. Your positioning in the premium menswear market (average suit price: 
-        ${brand.average_suit_price_usd:.0f}) aligns perfectly with our manufacturing capabilities.
-      </p>
+      <p>Este cliente foi validado automaticamente com base nos critérios dos top 18 clientes Lança.</p>
       
-      <p><strong>Why Partner with Confeções Lança?</strong></p>
-      <ul>
-        <li>🎯 <strong>Specialized Manufacturing:</strong> Tailored suits and premium outerwear</li>
-        <li>⚙️ <strong>Advanced Technology:</strong> Laser cutting and precision manufacturing</li>
-        <li>🌍 <strong>Sustainability Focus:</strong> Renewable energy and waste management</li>
-        <li>✨ <strong>Flexibility:</strong> Both industrial scale and tailor-made models</li>
-        <li>📜 <strong>Quality Certification:</strong> Structured processes ensuring excellence</li>
-      </ul>
-      
-      <p>
-        We would be delighted to discuss how we can support {brand.name}'s growth with 
-        our manufacturing expertise. Our team is ready to provide samples and detailed information 
-        about our capabilities.
-      </p>
-      
-      <p>
-        Would you be available for a brief call next week to explore this partnership opportunity?
-      </p>
+      <a href="{brand.website_url}" class="button">Visitar Website</a>
     </div>
     
-    <div class="signature">
-      <p>Best regards,</p>
-      <p>
-        <strong>Commercial Team</strong><br>
-        Confeções Lança<br>
-        Covilhã, Portugal<br>
-        Email: comercial@confecos-lanca.pt
-      </p>
-    </div>
-    
-    <div class="footer">
-      <p>Confeções Lança • Established 1973 • Excellence in Portuguese Manufacturing</p>
+    <div style="margin-top: 30px; font-size: 12px; color: #94a3b8; text-align: center;">
+      Enviado automaticamente pelo Lança Prospector AI
     </div>
   </div>
 </body>
@@ -157,10 +145,11 @@ async def send_partnership_email(brand: BrandLead) -> dict:
         
         params = {
             "from": Config.FROM_EMAIL,
-            "to": [contact_email],
-            "subject": f"Partnership Opportunity from Confeções Lança - Premium Portuguese Manufacturing",
+            "to": ["d.rmonteiro@hotmail.com", "carla.gaudencio@confeccoeslanca.com"],
+            "reply_to": "d.rmonteiro@hotmail.com",
+            "subject": f"Novo Potencial Cliente: {brand.name}",
             "html": generate_email_html(brand),
-            "text": generate_email_text(brand),
+            "text": f"Novo cliente detetado: {brand.name}\nWebsite: {brand.website_url}\nCidade: {brand.city}",
         }
         
         result = resend.Emails.send(params)

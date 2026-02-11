@@ -6,6 +6,7 @@ python-multipart
 # LangChain & LLM
 langchain
 langchain-openai
+langgraph
 
 # Tavily Search
 tavily-python
@@ -18,3 +19,15 @@ pydantic
 python-dotenv
 httpx
 aiohttp
+beautifulsoup4
+
+# Database (PostgreSQL)
+asyncpg
+psycopg2-binary
+psycopg[pool]
+sqlalchemy[asyncio]
+pgvector
+langgraph-checkpoint-postgres
+
+# Extraction Engines
+firecrawl-py
