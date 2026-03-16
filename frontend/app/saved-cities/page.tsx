@@ -133,7 +133,11 @@ export default function SavedCitiesPage() {
                     madeToMeasure: p.made_to_measure || false,
                     locationQuality: p.location_quality || (p.location_score > 0 ? "premium" : "standard"),
                     locationScore: p.location_score || 0,
-                    fitScore: p.fit_score || 0
+                    fitScore: p.fit_score || 0,
+                    contactName: p.contact_name,
+                    contactRole: p.contact_role,
+                    contactEmail: p.contact_email,
+                    contactPhone: p.contact_phone
                 };
             });
 

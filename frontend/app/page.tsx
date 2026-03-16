@@ -276,7 +276,11 @@ export default function Home() {
           madeToMeasure: p.made_to_measure || false,
           locationQuality: p.location_quality || (p.location_score > 0 ? "premium" : "standard"),
           locationScore: p.location_score || 0,
-          fitScore: p.fit_score || 0
+          fitScore: p.fit_score || 0,
+          contactName: p.contact_name,
+          contactRole: p.contact_role,
+          contactEmail: p.contact_email,
+          contactPhone: p.contact_phone
         };
       }) || [];
 
@@ -439,64 +443,7 @@ export default function Home() {
 
           {/* Main Content Area */}
           <div className="lg:col-span-9 space-y-8">
-            {/* Approval Node */}
-            {approvalState && (
-              <div className="animate-fade-in bg-white p-8 border-2 border-blue-600 rounded-2xl shadow-xl relative overflow-hidden mb-12">
-                <div className="absolute top-0 right-0 p-4">
-                  <div className="flex gap-1">
-                    <div className="w-1 h-1 rounded-full bg-blue-600 animate-pulse" />
-                    <div className="w-1 h-1 rounded-full bg-blue-600 animate-pulse stagger-1" />
-                  </div>
-                </div>
-                <h3 className="text-xl font-bold text-zinc-900 mb-2">
-                  {approvalState.type === "discovery" ? "Intervenção Humana: Validar Queries" : "Intervenção Humana: Seleção de Alvos"}
-                </h3>
-                <p className="text-xs text-zinc-500 font-medium mb-8">
-                  O sistema Alphaia requer validação estratégica antes de proceder para a próxima fase.
-                </p>
-
-                {approvalState.type === "discovery" ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
-                    {approvalState.queries?.map((q, idx) => (
-                      <div key={idx} className="p-4 bg-zinc-50 border border-zinc-100 flex items-center gap-3">
-                        <Search className="h-3.5 w-3.5 text-zinc-400" />
-                        <span className="text-xs font-medium text-zinc-900 truncate">{q}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-                    {approvalState.potentialBrands?.map((brand, idx) => (
-                      <div key={idx} className="p-4 bg-zinc-50 border border-zinc-100 flex justify-between items-center">
-                        <span className="text-[10px] font-bold uppercase truncate pr-4">{brand.name}</span>
-                        <span className="text-[10px] font-bold text-blue-600">${brand.averageSuitPriceUSD ? brand.averageSuitPriceUSD.toFixed(0) : "0"}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex gap-4">
-                  <Button
-                    onClick={() => handleResume(
-                      approvalState.threadId,
-                      approvalState.type,
-                      "approve",
-                      approvalState.type === "discovery" ? { queries: approvalState.queries } : { brands: approvalState.potentialBrands }
-                    )}
-                    className="flex-1 h-12 bg-zinc-950 hover:bg-zinc-800 text-white font-bold tracking-widest text-[10px] uppercase rounded-none"
-                  >
-                    Confirmar e Prosseguir
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setApprovalState(null)}
-                    className="w-40 h-12 border-zinc-200 text-zinc-400 font-bold tracking-widest text-[10px] uppercase rounded-none"
-                  >
-                    Cancelar
-                  </Button>
-                </div>
-              </div>
-            )}
+            {/* Approval Node Removed */}
 
             {/* Results Grid / List */}
             {isSearching ? (

@@ -25,4 +25,8 @@ export interface BrandLead {
   storeLocations?: string[];
   woolPercentage?: string;
   madeToMeasure?: boolean;
+  contactName?: string;
+  contactRole?: string;
+  contactEmail?: string;
+  contactPhone?: string;
 }

@@ -117,5 +117,6 @@ async def _get_app_with_postgres():
         workflow.add_edge("validation", "persistence")
         workflow.add_edge("persistence", END)
         
-        app = workflow.compile(checkpointer=checkpointer, interrupt_before=["discovery", "persistence"])
+        # Removed human-in-the-loop interruptions to run straight through
+        app = workflow.compile(checkpointer=checkpointer)
         yield app

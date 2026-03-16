@@ -190,6 +190,45 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
                   </section>
                 )}
 
+                {/* [V2.6] Contact Information Block */}
+                {(brand.contactName || brand.contactRole || brand.contactEmail || brand.contactPhone) && (
+                  <section className="bg-white p-6 rounded-xl border border-zinc-200 shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-blue-600"></div>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Mail className="h-4 w-4 text-blue-600" />
+                      <h4 className="text-[10px] font-bold tracking-widest uppercase text-blue-600">CONTACTO CHAVE</h4>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <p className="text-[10px] uppercase font-bold text-zinc-400">Nome / Cargo</p>
+                        <p className="text-sm font-bold text-zinc-900">
+                          {brand.contactName || "Não disponível"} {brand.contactRole ? `(${brand.contactRole})` : ""}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] uppercase font-bold text-zinc-400">Email / Perfil</p>
+                        {brand.contactEmail ? (
+                          brand.contactEmail.includes("http") ? (
+                            <a href={brand.contactEmail} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-blue-600 hover:underline">
+                              Ver Perfil LinkedIn
+                            </a>
+                          ) : (
+                            <p className="text-sm font-bold text-blue-600">{brand.contactEmail}</p>
+                          )
+                        ) : (
+                          <p className="text-sm text-zinc-500 italic">Não disponível</p>
+                        )}
+                      </div>
+                      {brand.contactPhone && (
+                        <div className="space-y-1 md:col-span-2">
+                          <p className="text-[10px] uppercase font-bold text-zinc-400">Telefone / Telemóvel</p>
+                          <p className="text-sm font-bold text-zinc-900">{brand.contactPhone}</p>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                )}
+
                 {(() => {
                   const locations = Array.isArray(brand.storeLocations) ? brand.storeLocations : [];
                   if (locations.length === 0) return null;

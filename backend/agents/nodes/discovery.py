@@ -28,8 +28,9 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
         client = get_tavily_client()
         exclude_domains = ["amazon.com", "ebay.com", "walmart.com", "target.com", "nordstrom.com", "yelp.com"]
         
-        # Limit to first 3 queries to manage costs/depth as per legacy logic
-        for i in range(min(total_queries, 3)):
+        # Limit to 4 queries (instead of 3) to get more distinct angles,
+        # and 40 results per search to reach slightly deeper without hitting full spam territory.
+        for i in range(min(total_queries, 4)):
             query = search_queries[i]
             try:
                 print(f"[TAVILY] Query {i + 1}: \"{query}\"")
@@ -38,7 +39,7 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
                 response = client.search(
                     query=query,
                     search_depth="advanced",
-                    max_results=30,
+                    max_results=40,
                     exclude_domains=exclude_domains,
                 )
                 

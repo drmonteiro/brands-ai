@@ -67,7 +67,14 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
 
         # 2. Run Workflow
         initial_state = create_initial_state(city).model_dump()
-        result, interrupted, next_node = await run_prospector_workflow(initial_state)
+        
+        # [V2.7] If force_refresh is true, we use a unique thread_id to bypass LangGraph's engine memory
+        import time
+        thread_id = f"prospect_search_{city}"
+        if force_refresh:
+            thread_id = f"prospect_search_{city}_{int(time.time())}"
+            
+        result, interrupted, next_node = await run_prospector_workflow(initial_state, thread_id=thread_id)
         
         # 3. Stream Progress
         for msg in result.get("progress", []):

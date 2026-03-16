@@ -143,8 +143,17 @@ async def save_prospect(
                 detailed_description, store_locations,
                 material_composition, sustainability_certs, made_to_measure,
                 heritage_brand, quality_score, similarity_score, location_score, location_quality,
-                final_score, fit_score, most_similar_client, similarity_explanation, status, discovered_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+                final_score, fit_score, most_similar_client, similarity_explanation, status, discovered_at,
+                contact_name, contact_role, contact_email, contact_phone
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
+            ON CONFLICT (id) DO UPDATE SET
+                avg_suit_price_eur = EXCLUDED.avg_suit_price_eur,
+                final_score = EXCLUDED.final_score,
+                contact_name = COALESCE(EXCLUDED.contact_name, prospects.contact_name),
+                contact_role = COALESCE(EXCLUDED.contact_role, prospects.contact_role),
+                contact_email = COALESCE(EXCLUDED.contact_email, prospects.contact_email),
+                contact_phone = COALESCE(EXCLUDED.contact_phone, prospects.contact_phone),
+                updated_at = CURRENT_TIMESTAMP
         """,
             prospect_id,
             str(prospect.get("name", "Unknown")),
@@ -173,7 +182,11 @@ async def save_prospect(
             scores.get("explanation", {}).get("most_similar_client", "N/A"),
             scores.get("explanation", {}).get("similarity_explanation", ""),
             "new",
-            datetime.now()
+            datetime.now(),
+            str(prospect.get("contact_name", "")) if prospect.get("contact_name") else None,
+            str(prospect.get("contact_role", "")) if prospect.get("contact_role") else None,
+            str(prospect.get("contact_email", "")) if prospect.get("contact_email") else None,
+            str(prospect.get("contact_phone", "")) if prospect.get("contact_phone") else None
         )
         
         print(f"[DATABASE] ✅ Saved to Postgres: {prospect.get('name')} ({city}) - Score: {scores.get('final_score', 0):.1f}")

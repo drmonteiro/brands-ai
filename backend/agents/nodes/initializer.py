@@ -76,12 +76,13 @@ def generate_queries_from_clients(target_city: str) -> List[str]:
     These templates are proven effective patterns based on Lança's ideal client profile.
     """
     queries = [
-        f'{target_city} luxury menswear boutique premium suits',
-        f'{target_city} bespoke tailor custom suits high end',
-        f'{target_city} designer men suits store independent',
+        f"{target_city} luxury menswear boutique premium suits",
+        f"{target_city} bespoke tailor custom suits high end",
+        f"{target_city} designer men suits store independent",
+        f"{target_city} sastreria a medida fatos de cerimónia wedding suits store",
     ]
-    
-    print(f"[QUERY-AGENT] Using optimized queries for {target_city} (3 queries)")
+
+    print(f"[QUERY-AGENT] Using optimized queries for {target_city} (4 queries)")
     for i, q in enumerate(queries, 1):
         print(f"   Query {i}: \"{q}\"")
     
