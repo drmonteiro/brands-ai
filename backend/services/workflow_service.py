@@ -65,27 +65,45 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
             yield f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands, 'cached': True})}\n\n"
             return
 
-        # 2. Run Workflow
+        # 2. Run Workflow (STREAMING)
         initial_state = create_initial_state(city).model_dump()
+        initial_state["force_refresh"] = force_refresh
         
-        # [V2.7] If force_refresh is true, we use a unique thread_id to bypass LangGraph's engine memory
+        # Unique thread_id for Refresh
         import time
         thread_id = f"prospect_search_{city}"
         if force_refresh:
             thread_id = f"prospect_search_{city}_{int(time.time())}"
             
-        result, interrupted, next_node = await run_prospector_workflow(initial_state, thread_id=thread_id)
+        config = {"configurable": {"thread_id": thread_id}}
         
-        # 3. Stream Progress
-        for msg in result.get("progress", []):
-            yield f"data: {json.dumps({'type': 'progress', 'message': msg})}\n\n"
-            await asyncio.sleep(0.05)
+        last_yielded_progress_idx = 0
+        final_result = {}
+
+        async with _get_app_with_postgres() as app:
+            async for event in app.astream(initial_state, config=config, stream_mode="values"):
+                # Track latest state result
+                final_result = event
+                
+                # Check for new progress messages to stream
+                progress = event.get("progress", [])
+                if len(progress) > last_yielded_progress_idx:
+                    for i in range(last_yielded_progress_idx, len(progress)):
+                        yield f"data: {json.dumps({'type': 'progress', 'message': progress[i]})}\n\n"
+                        await asyncio.sleep(0.01)
+                    last_yielded_progress_idx = len(progress)
             
-        if interrupted:
-            yield f"data: {json.dumps({'type': 'waiting_approval', 'next_node': next_node, 'thread_id': 'prospect_search_' + city, 'search_queries': result.get('search_queries')})}\n\n"
-        else:
-            brands = [b.model_dump(by_alias=True) if hasattr(b, 'model_dump') else b for b in result.get('verified_brands', [])]
-            yield f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands})}\n\n"
+            # 3. Finalization
+            # Check if finalized or interrupted (HIL is currently disabled but good to keep logic)
+            state = await app.aget_state(config)
+            interrupted = len(state.next) > 0
+            
+            if interrupted:
+                yield f"data: {json.dumps({'type': 'waiting_approval', 'next_node': state.next[0], 'thread_id': thread_id})}\n\n"
+            else:
+                raw_brands = final_result.get('verified_brands', [])
+                brands = [b.model_dump(by_alias=True) if hasattr(b, 'model_dump') else b for b in raw_brands]
+                yield f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands})}\n\n"
             
     except Exception as e:
         import traceback

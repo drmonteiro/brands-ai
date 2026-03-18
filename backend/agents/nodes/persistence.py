@@ -56,6 +56,10 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
             "fit_score": brand_dict.get("fitScore") or brand_dict.get("fit_score", 0),
             "material_composition": [brand_dict.get("woolPercentage") or brand_dict.get("wool_percentage")] if (brand_dict.get("woolPercentage") or brand_dict.get("wool_percentage")) else [],
             "made_to_measure": brand_dict.get("madeToMeasure") or brand_dict.get("made_to_measure", False),
+            "contact_name": brand_dict.get("contactName") or brand_dict.get("contact_name"),
+            "contact_role": brand_dict.get("contactRole") or brand_dict.get("contact_role"),
+            "contact_email": brand_dict.get("contactEmail") or brand_dict.get("contact_email"),
+            "contact_phone": brand_dict.get("contactPhone") or brand_dict.get("contact_phone"),
         }
         
         try:

@@ -3,6 +3,7 @@ LangGraph Orchestration for Confeções Lança Prospecting Workflow
 """
 
 import operator
+import contextlib
 from typing import Annotated, List, Dict, Any, Union, Optional
 from typing_extensions import TypedDict
 
@@ -41,6 +42,7 @@ class GraphState(TypedDict):
     cached_count: int
     queries_approved: bool
     brands_approved: bool
+    force_refresh: bool
 
 
 # ============================================================================
@@ -55,15 +57,43 @@ from config import Config
 # CHECKPOINTER SETUP
 # ============================================================================
 
-# Connection string for PostgresSaver (needs to be sync for the pool normally, 
-# but PostgresSaver can take a pool)
-# We use the SYNC_DATABASE_URL for the psycopg pool
-DB_URI = Config.SYNC_DATABASE_URL or "postgresql://lanca:lanca_password@localhost:5432/lanca_leads"
+# Shared connection pool for the checkpointer
+_graph_pool = None
 
+async def get_graph_pool():
+    global _graph_pool
+    if _graph_pool is None:
+        DB_URI = Config.SYNC_DATABASE_URL or "postgresql://lanca:lanca_password@localhost:5432/lanca_leads"
+        connection_kwargs = {
+            "autocommit": True,
+            "prepare_threshold": 0,
+        }
+        _graph_pool = AsyncConnectionPool(conninfo=DB_URI, max_size=10, kwargs=connection_kwargs)
+    return _graph_pool
 
+@contextlib.asynccontextmanager
+async def _get_app_with_postgres():
+    pool = await get_graph_pool()
+    checkpointer = AsyncPostgresSaver(pool)
+    # Note: setup() is idempotent but needs to be called
+    await checkpointer.setup()
+    
+    workflow = StateGraph(GraphState)
+    workflow.add_node("initialize", initialize_search)
+    workflow.add_node("discovery", discovery_node)
+    workflow.add_node("validation", validation_node)
+    workflow.add_node("persistence", filter_node)
+    
+    workflow.set_entry_point("initialize")
+    workflow.add_conditional_edges("initialize", lambda x: "end" if x.get("cached") else "discovery", {"end": END, "discovery": "discovery"})
+    workflow.add_edge("discovery", "validation")
+    workflow.add_edge("validation", "persistence")
+    workflow.add_edge("persistence", END)
+    
+    app = workflow.compile(checkpointer=checkpointer)
+    yield app
 
 # Helper to execute against checking
-# Using a slightly different approach for the wrapper to handle the pool/checkpointer lifecycle
 async def run_prospector_workflow(initial_state_data: Dict[str, Any], thread_id: str = None):
     """
     High-level entry point to run the prospector graph.
@@ -89,34 +119,4 @@ async def run_prospector_workflow(initial_state_data: Dict[str, Any], thread_id:
         return final_state.values, is_interrupted, next_node[0] if is_interrupted else None
 
 # Private helper to manage graph+checkpointer lifecycle
-import contextlib
-
-@contextlib.asynccontextmanager
-async def _get_app_with_postgres():
-    connection_kwargs = {
-        "autocommit": True,
-        "prepare_threshold": 0,
-    }
-    
-    # Use AsyncConnectionPool for async compatibility
-    async with AsyncConnectionPool(conninfo=DB_URI, max_size=20, kwargs=connection_kwargs) as pool:
-        checkpointer = AsyncPostgresSaver(pool)
-        
-        # setup() must be awaited for AsyncPostgresSaver
-        await checkpointer.setup()
-        
-        workflow = StateGraph(GraphState)
-        workflow.add_node("initialize", initialize_search)
-        workflow.add_node("discovery", discovery_node)
-        workflow.add_node("validation", validation_node)
-        workflow.add_node("persistence", filter_node)
-        
-        workflow.set_entry_point("initialize")
-        workflow.add_conditional_edges("initialize", lambda x: "end" if x.get("cached") else "discovery", {"end": END, "discovery": "discovery"})
-        workflow.add_edge("discovery", "validation")
-        workflow.add_edge("validation", "persistence")
-        workflow.add_edge("persistence", END)
-        
-        # Removed human-in-the-loop interruptions to run straight through
-        app = workflow.compile(checkpointer=checkpointer)
-        yield app
+# (Original version at the top is the one we use)

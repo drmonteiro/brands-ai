@@ -268,14 +268,6 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
                     ))}
                   </div>
                 </section>
-
-                <div className="bg-blue-50/50 p-8 text-center border border-blue-100 rounded-xl">
-                  <p className="text-[9px] font-bold tracking-widest text-blue-600 mb-4 uppercase">PARTNERSHIP SCORE</p>
-                  <p className="text-6xl font-bold text-blue-900 mb-2">9.8</p>
-                  <div className="flex gap-1 justify-center opacity-20">
-                    {[1, 2, 3, 4, 5].map(i => <div key={i} className="w-1 h-1 rounded-full bg-blue-900" />)}
-                  </div>
-                </div>
               </div>
             </div>
           </div>

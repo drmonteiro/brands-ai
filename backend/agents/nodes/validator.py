@@ -16,7 +16,7 @@ from services.price_extractor import extract_price_from_content
 from services.vector_db import find_similar_clients
 from services.client_analysis import generate_rich_client_examples
 from services.database import is_domain_suppressed
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 # Limit global validation concurrency (e.g., 3 city searches at a time)
 validation_semaphore = asyncio.Semaphore(3)
@@ -55,60 +55,65 @@ async def validation_node(
         }
 
     try:
-        # STEP 1: Aggregate UNIQUE candidates
+        # STEP 1: Aggregate UNIQUE candidates with origin tracking
         candidate_urls = []
-        unique_urls = set()
+        url_to_origin = {}
         seen_domains = set()
 
         for q in search_results:
-            for r in q.results:
+            # Handle both search_results being a list of objects or dicts
+            origin = q.query_origin if hasattr(q, "query_origin") else q.get("query_origin", "Unknown")
+            rs = q.results if hasattr(q, "results") else q.get("results", [])
+            for r in rs:
                 url = r.get("url")
                 if url:
                     domain = get_domain_from_url(url)
                     if domain not in seen_domains:
                         # [RGPD] Suppression check
                         if await is_domain_suppressed(domain):
-                            print(f"[RGPD] Skipping suppressed domain: {domain}")
                             continue
 
                         seen_domains.add(domain)
                         norm_url = normalize_url(url)
-                        if norm_url not in unique_urls:
-                            unique_urls.add(norm_url)
-                            candidate_urls.append(url)
+                        url_to_origin[norm_url] = origin
+                        candidate_urls.append(url)
 
         new_progress.append(
             f"\n🚜 HARVEST: Processando {len(candidate_urls)} URLs únicos..."
         )
-        print(
-            f"[VALIDATION] {len(candidate_urls)} candidates after domain/RGPD filtering."
-        )
 
         # STEP 2: SCRAPE EVERYTHING
         extracted_contents = await batch_extract_content(candidate_urls)
+        for ec in extracted_contents:
+            norm = normalize_url(ec.url)
+            ec.query_origin = url_to_origin.get(norm, "Unknown")
+
         successful_extractions = [e for e in extracted_contents if e.content]
         new_progress.append(
             f"   ✅ Conteúdo extraído: {len(successful_extractions)}/{len(candidate_urls)}"
         )
 
         # STEP 3: DATA-DRIVEN FILTERING
-        new_progress.append(f"\n🛡️ DATA FILTER (Filtro Impiedoso)...")
+        new_progress.append(f"\n🛡️ DATA FILTER (Scoring +2/+1/-3)...")
         keyword_filtered = filter_by_keywords(successful_extractions)
-        print(
-            f"[VALIDATION] {len(keyword_filtered)} candidates after keyword filtering."
-        )
-        new_progress.append(f"   📉 Keyword Check: {len(keyword_filtered)} relevantes")
+        
+        valid_items = []
+        for item, score in keyword_filtered:
+            item.quality_score = score
+            valid_items.append(item)
+
+        new_progress.append(f"   📉 Quality Check: {len(valid_items)} relevantes (score >= 1)")
 
         new_progress.append(
-            f"   🕵️ Procurando preços em {len(keyword_filtered)} sites..."
+            f"   🕵️ Procurando preços em {len(valid_items)} sites..."
         )
-        enriched_contents = await enrich_content_with_prices(keyword_filtered)
+        enriched_contents = await enrich_content_with_prices(valid_items)
 
         scored_candidates = []
         for content in enriched_contents:
             price_info = extract_price_from_content(content.content)
             price_eur = price_info.get("avg_price", 0)
-            if 0 < price_eur < 300:
+            if 0 < price_eur < 300: # Too cheap
                 continue
 
             similar_clients = await find_similar_clients(
@@ -121,7 +126,7 @@ async def validation_node(
             if similarity_score < 45 and price_eur == 0:
                 continue
 
-            temp_score = (similarity_score * 0.7) + (30 if price_eur > 500 else 0)
+            temp_score = (similarity_score * 0.6) + (content.quality_score * 5) + (30 if price_eur > 500 else 0)
             if temp_score < 25:
                 continue
 
@@ -133,30 +138,24 @@ async def validation_node(
         # STEP 4: LinkedIn Deep Search for Contacts
         new_progress.append(f"\n🔎 Procurando líderes e fundadores no LinkedIn...")
 
-        # Parallel DDG search for each candidate
         async def fetch_linkedin_info(content_obj):
             try:
                 domain = get_domain_from_url(content_obj.url)
-                # Ensure the domain isn't completely generic
-                if len(domain) < 4:
-                    return ""
-
-                # Use DuckDuckGo to search for the CEO/Founder on LinkedIn
-                query = f"site:linkedin.com/in/ ({domain} OR \"{domain.split('.')[0]}\") (CEO OR Founder OR Owner OR Director OR CFO OR CPO OR Partner OR Buyer OR Manager)"
-                results = DDGS().text(query, max_results=3)
+                if len(domain) < 4: return ""
+                query = f"site:linkedin.com/in {domain} CEO founder owner"
+                with DDGS() as ddgs:
+                    results = [r for r in ddgs.text(query, max_results=3)]
 
                 linkedin_context = []
                 for res in results:
                     linkedin_context.append(
                         f"Name/Title: {res.get('title', '')} - Profile: {res.get('href', '')} - Bio: {res.get('body', '')}"
                     )
-
                 return "\n".join(linkedin_context)
             except Exception as e:
                 print(f"[DDGS] Failed to search LinkedIn for {content_obj.url}: {e}")
                 return ""
 
-        # Fetch all linkedin data concurrently
         linkedin_results = await asyncio.gather(
             *(fetch_linkedin_info(obj) for obj in final_candidates_content)
         )
@@ -183,46 +182,30 @@ async def validation_node(
         print(f"[VALIDATION] Critical error: {error}")
         return {"potential_brands": [], "progress": [f"❌ Erro crítico: {error}"]}
 
+def filter_by_keywords(contents: List[ExtractedContent]) -> List[tuple[ExtractedContent, int]]:
+    """
+    Implements the (+2, +1, -3) scoring logic from Requirement 3.
+    """
+    high_quality = ["full canvas", "bespoke", "made-to-measure", "loro piana", "scabal", "dormeuil", "sartorial", "canvassed", "working buttonholes", "pick stitching", "trunk show", "atelier", "hand finished", "handmade"]
+    mid_quality = ["premium", "luxury", "high-end", "custom", "tailored", "curated", "independent boutique", "menswear specialist", "heritage tailoring"]
+    exclusion = ["fast fashion", "discount", "outlet", "h&m", "zara", "mango", "amazon", "rental", "hire only", "costume", "ebay", "walmart", "target"]
 
-def filter_by_keywords(contents: List[ExtractedContent]) -> List[ExtractedContent]:
-    """Fast directory/irrelevant site filter."""
-    pos_kw = [
-        "suit",
-        "fato",
-        "jacket",
-        "blazer",
-        "tailor",
-        "sartorial",
-        "bespoke",
-        "abito",
-        "traje",
-        "costume",
-        "menswear",
-        "moda",
-    ]
-    neg_kw = [
-        "yelp",
-        "tripadvisor",
-        "directory",
-        "pages",
-        "list",
-        "blog",
-        "news",
-        "guide",
-        "ranking",
-    ]
-
-    filtered = []
+    results = []
     for item in contents:
-        txt = item.content.lower()[:5000]
-        if any(neg in item.url.lower() for neg in neg_kw):
-            continue
-        score = sum(1 for kw in pos_kw if kw in txt)
-        if any(kw in txt for kw in ["suit", "tailor", "bespoke", "sartorial"]):
-            score += 3
-        if score >= 2:
-            filtered.append(item)
-    return filtered
+        txt = (item.content or "").lower()[:8000]
+        url_txt = item.url.lower()
+        score = 0
+        for kw in high_quality:
+            if kw in txt or kw in url_txt: score += 2
+        for kw in mid_quality:
+            if kw in txt or kw in url_txt: score += 1
+        for kw in exclusion:
+            if kw in txt or kw in url_txt: score -= 3
+        if score >= 1:
+            results.append((item, score))
+    return results
+
+
 
 
 async def select_final_candidates(
@@ -302,8 +285,9 @@ async def select_final_candidates(
             seen_names.add(name)
 
             # Premium Street Detection
-            content = next((e.content for e in extracted_contents if e.url == url), "")
-            street, tier = detect_premium_location(content, target_city)
+            content_obj = next((e for e in extracted_contents if e.url == url), None)
+            content_text = content_obj.content if content_obj else ""
+            street, tier = detect_premium_location(content_text, target_city)
 
             location_quality = (
                 "premium" if street else data.get("locationQuality", "standard")
@@ -334,9 +318,16 @@ async def select_final_candidates(
                     contact_email=data.get("contactEmail"),
                     contact_phone=data.get("contactPhone"),
                     passes_constraints=True,
+                    # [V2.7] Add quality score and origin
+                    quality_score=getattr(content_obj, "quality_score", 0) if content_obj else 0,
+                    query_origin=getattr(content_obj, "query_origin", "Unknown") if content_obj else "Unknown"
                 )
             )
+        
+        # Sort by quality score descending
+        unique_results.sort(key=lambda x: x.quality_score, reverse=True)
         return unique_results
+
     except Exception as e:
         print(f"[SELECTION-AGENT] Error: {e}")
         return []

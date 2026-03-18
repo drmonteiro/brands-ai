@@ -7,6 +7,9 @@ from models import ProspectorState
 from services.database import get_prospects_by_city
 from .utils import get_exchange_rate, convert_eur_to_usd
 
+import random
+from .utils import get_llm
+
 async def initialize_search(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
     """
     Initialize search and generate queries using optimized templates based on ideal client profile.
@@ -19,19 +22,24 @@ async def initialize_search(state: Union[ProspectorState, Dict[str, Any]]) -> Di
     # [V2.5] Basic Country Inference
     if target_country == "USA": # Only try to infer if it's the default
         city_lower = target_city.lower()
-        if any(c in city_lower for c in ["london", "manchester", "birmingham"]): target_country = "UK"
+        if any(c in city_lower for f, c in [("london", "london"), ("manchester", "manchester"), ("birmingham", "birmingham")]): target_country = "UK"
         elif any(c in city_lower for c in ["paris", "lyon", "marseille"]): target_country = "France"
         elif any(c in city_lower for c in ["berlin", "munich", "hamburg", "frankfurt"]): target_country = "Germany"
         elif any(c in city_lower for c in ["milan", "rome", "florence", "naples"]): target_country = "Italy"
         elif any(c in city_lower for c in ["madrid", "barcelona"]): target_country = "Spain"
         elif any(c in city_lower for c in ["lisbon", "porto"]): target_country = "Portugal"
     
-    print(f"[INIT] Starting intelligent search for: {target_city}, {target_country}")
+    # [V2.7] Tier Detection
+    tier1_cities = ["London", "Paris", "Milan", "New York", "Boston", "Madrid", "Lisbon", "Tokyo", "Hong Kong", "Zurich"]
+    tier = 1 if any(t.lower() in target_city.lower() for t in tier1_cities) else 2
+    
+    print(f"[INIT] Starting intelligent search for: {target_city}, {target_country} (Tier {tier})")
     
     # 💰 CACHE CHECK
     existing_prospects = await get_prospects_by_city(target_city, limit=100)
+    force_refresh = state.get("force_refresh", False) if isinstance(state, dict) else getattr(state, "force_refresh", False)
     
-    if len(existing_prospects) >= 10:
+    if len(existing_prospects) >= 10 and not force_refresh:
         return {
             "exchange_rate": await get_exchange_rate(),
             "price_threshold_usd": 0,
@@ -48,27 +56,136 @@ async def initialize_search(state: Union[ProspectorState, Dict[str, Any]]) -> Di
     exchange_rate = await get_exchange_rate()
     price_threshold_usd = convert_eur_to_usd(price_threshold_eur, exchange_rate)
     
-    # Generate queries (Optimized to avoid unnecessary LLM call for standard search patterns)
-    search_queries = generate_queries_from_clients(target_city)
+    # [V2.7] DYNAMIC QUERY GENERATION
+    search_queries, query_origins = await select_queries(target_city, target_country, tier)
     
     new_progress = [
-        f"🚀 Pesquisa iniciada para {target_city}. Preço alvo: ${price_threshold_usd:.0f}",
-        "🔍 A gerar queries inteligentes baseadas no perfil ideal da Lança...",
-        f"✅ {len(search_queries)} queries geradas pelo agente de análise"
+        f"🚀 Pesquisa iniciada para {target_city} (Tier {tier}). Preço alvo: ${price_threshold_usd:.0f}",
+        "🔍 A gerar queries inteligentes segmentadas por eixos...",
+        f"✅ {len(search_queries)} queries geradas (Mix de qualidade, B2B e local)"
     ]
     
-    for idx, query in enumerate(search_queries):
-        new_progress.append(f"   Query {idx + 1}: \"{query}\"")
+    for idx, (query, origin) in enumerate(zip(search_queries, query_origins)):
+        new_progress.append(f"   [{origin}] \"{query}\"")
     
     return {
         "exchange_rate": exchange_rate,
         "price_threshold_usd": price_threshold_usd,
         "search_queries": search_queries,
+        "query_origins": query_origins,
         "progress": new_progress,
-        "search_results": [], # Initialize empty list for results
+        "search_results": [],
+        "tier": tier
     }
 
+async def select_queries(city: str, country: str, tier: int) -> tuple[List[str], List[str]]:
+    """
+    Selects 4-6 optimized queries based on 5 strategic axes.
+    """
+    # Eixo 1 - Qualidade técnica (Sartorial)
+    eixo1 = [
+        f"{city} full canvas suits bespoke tailor atelier",
+        f"{city} half canvas made-to-measure menswear boutique",
+        f"{city} sartorial menswear suits working buttonholes pick stitching",
+        f"{city} Savile Row style suits bespoke tailor"
+    ]
+    
+    # Eixo 2 - Tecidos Premium
+    eixo2 = [
+        f"{city} Loro Piana suits made-to-measure store",
+        f"{city} Scabal Dormeuil Holland Sherry fabric suits atelier",
+        f"{city} Vitale Barberis Canonico Cerruti suits tailor boutique"
+    ]
+    
+    # Eixo 3 - Canal B2B e Private Label
+    eixo3 = [
+        f"{city} private label suits menswear wholesale",
+        f"{city} white label menswear manufacturer partner boutique",
+        f"{city} trunk show menswear suits brand partnership"
+    ]
+    
+    # Eixo 4 - Cerimónia e Ocasião
+    eixo4 = [
+        f"{city} luxury wedding suits formalwear boutique",
+        f"{city} black tie eveningwear bespoke suits store",
+        f"{city} morning suit hire bespoke ceremonial tailor"
+    ]
+    
+    # Editorial Axis (from Requirement 5)
+    eixo_editorial = [
+        f"best bespoke tailors in {city}",
+        f"top menswear boutiques in {city}",
+        f"best custom suits in {city}",
+        f"best tailoring houses in {city}"
+    ]
+
+    # Dynamically generate local language query (Axis 5)
+    axis5_query = await generate_local_query(city, country)
+    
+    selected_queries = []
+    origins = []
+    
+    if tier == 1:
+        # Tier 1: ~10 queries
+        selected_queries.extend(random.sample(eixo1, 2))
+        origins.extend(["Axis 1 (Sartorial)"] * 2)
+        
+        selected_queries.extend(random.sample(eixo2, 2))
+        origins.extend(["Axis 2 (Fabrics)"] * 2)
+        
+        selected_queries.extend(random.sample(eixo3, 2))
+        origins.extend(["Axis 3 (B2B/Label)"] * 2)
+        
+        selected_queries.append(random.choice(eixo4))
+        origins.append("Axis 4 (Wedding)")
+        
+        selected_queries.extend(random.sample(eixo_editorial, 2))
+        origins.extend(["Axis Editorial"] * 2)
+        
+        selected_queries.append(axis5_query)
+        origins.append("Axis 5 (Local)")
+    else:
+        # Tier 2: ~6 queries
+        selected_queries.append(random.choice(eixo1))
+        origins.append("Axis 1 (Sartorial)")
+        
+        selected_queries.append(random.choice(eixo3))
+        origins.append("Axis 3 (B2B/Label)")
+        
+        selected_queries.append(random.choice(eixo4))
+        origins.append("Axis 4 (Wedding)")
+        
+        selected_queries.append(random.choice(eixo_editorial))
+        origins.append("Axis Editorial")
+        
+        selected_queries.append(axis5_query)
+        origins.append("Axis 5 (Local)")
+        
+        # Add one more random from Axis 1 or 2
+        extra = random.choice(eixo1 + eixo2)
+        selected_queries.append(extra)
+        origins.append("Axis Extra")
+
+
+    return selected_queries, origins
+
+async def generate_local_query(city: str, country: str) -> str:
+    """Uses LLM to generate a local language search query for the city."""
+    llm = get_llm()
+    prompt = f"""
+    Create a single high-end search query in the local language of {city}, {country} to find luxury bespoke tailors or independent menswear boutiques.
+    Example for Milan: "Milano sarto su misura abiti uomo lusso"
+    Example for Paris: "Paris tailleur sur mesure costume homme luxe atelier"
+    Return ONLY the query string.
+    """
+    try:
+        response = await llm.ainvoke(prompt)
+        return response.content.strip().strip('"')
+    except:
+        return f"{city} luxury bespoke tailor menswear"
+
 def generate_queries_from_clients(target_city: str) -> List[str]:
+
     """
     Generate search queries based on Confeções Lança's ideal client profile.
     

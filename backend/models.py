@@ -165,6 +165,11 @@ class BrandLead(BaseModel):
     origin_country: str = Field(default="USA", alias="originCountry")
     verified: bool = False
     verification_log: List[str] = Field(default_factory=list, alias="verificationLog")
+    # [V2.7] New scoring and origin fields
+    quality_score: int = Field(default=0, alias="qualityScore")
+    query_origin: Optional[str] = Field(None, alias="queryOrigin")
+    language_of_result: Optional[str] = Field(None, alias="languageOfResult")
+    
     passes_constraints: bool = Field(default=False, alias="passesConstraints")
     wool_percentage: Optional[str] = Field(None, alias="woolPercentage")
     made_to_measure: bool = Field(default=False, alias="madeToMeasure")
@@ -227,6 +232,7 @@ class QuerySearchResults(BaseModel):
     """Search results grouped by query"""
     query_index: int
     query: str
+    query_origin: Optional[str] = None
     results: List[Dict[str, str]] = Field(default_factory=list)
 
 
@@ -234,7 +240,9 @@ class ProspectorState(BaseModel):
     """State for the prospecting agent workflow"""
     target_city: str
     target_country: str = "USA"
+    tier: int = 2 # 1=Global Metro, 2=Regional
     search_queries: List[str] = Field(default_factory=list)
+    query_origins: List[str] = Field(default_factory=list) # To track axis/source
     candidate_urls: List[str] = Field(default_factory=list)
     potential_brands: List[BrandLead] = Field(default_factory=list)
     verified_brands: List[BrandLead] = Field(default_factory=list)
@@ -251,6 +259,8 @@ class ProspectorState(BaseModel):
     cached_count: int = 0
     queries_approved: bool = False
     brands_approved: bool = False
+    force_refresh: bool = False
+
 
 
 class SearchRequest(BaseModel):
