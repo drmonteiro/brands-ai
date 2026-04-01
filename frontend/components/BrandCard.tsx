@@ -169,7 +169,9 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
                 {brand.name}
               </h3>
               {brand.verified && (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" title="Verificado pela IA" />
+                <span title="Verificado pela IA" className="flex items-center flex-shrink-0">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                </span>
               )}
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
