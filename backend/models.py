@@ -212,6 +212,7 @@ class BrandLead(BaseModel):
     @classmethod
     def parse_json_fields(cls, v):
         if isinstance(v, str):
+            import json
             try:
                 # Try to parse as JSON if it's a string
                 parsed = json.loads(v)
@@ -219,6 +220,23 @@ class BrandLead(BaseModel):
                     return parsed
             except:
                 pass
+            import ast
+            try:
+                parsed = ast.literal_eval(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except:
+                pass
+            # Fallback for plain strings
+            if v.strip():
+                if v.startswith('[') and v.endswith(']'):
+                    # Trying to strip brackets and split
+                    content = v[1:-1].strip()
+                    if content:
+                        return [s.strip(" '\"") for s in content.split(',')]
+                    return []
+                return [v]
+            return []
         return v
 
     @property
