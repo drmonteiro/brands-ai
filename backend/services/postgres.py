@@ -11,21 +11,29 @@ class PostgresManager:
     @classmethod
     async def get_pool(cls) -> asyncpg.Pool:
         if cls._pool is None:
-            user = os.getenv("POSTGRES_USER", "lanca")
-            password = os.getenv("POSTGRES_PASSWORD", "lanca_password")
-            database = os.getenv("POSTGRES_DB", "lanca_leads")
-            host = os.getenv("POSTGRES_HOST", "localhost")
-            port = os.getenv("POSTGRES_PORT", "5432")
-            
-            cls._pool = await asyncpg.create_pool(
-                user=user,
-                password=password,
-                database=database,
-                host=host,
-                port=int(port),
-                min_size=5,
-                max_size=20
-            )
+            dsn = os.getenv("SYNC_DATABASE_URL") or os.getenv("DATABASE_URL")
+            if dsn:
+                cls._pool = await asyncpg.create_pool(
+                    dsn=dsn,
+                    min_size=5,
+                    max_size=20
+                )
+            else:
+                user = os.getenv("POSTGRES_USER", "lanca")
+                password = os.getenv("POSTGRES_PASSWORD", "lanca_password")
+                database = os.getenv("POSTGRES_DB", "lanca_leads")
+                host = os.getenv("POSTGRES_HOST", "localhost")
+                port = os.getenv("POSTGRES_PORT", "5432")
+                
+                cls._pool = await asyncpg.create_pool(
+                    user=user,
+                    password=password,
+                    database=database,
+                    host=host,
+                    port=int(port),
+                    min_size=5,
+                    max_size=20
+                )
         return cls._pool
 
     @classmethod
