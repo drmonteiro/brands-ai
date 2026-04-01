@@ -31,3 +31,4 @@ langgraph-checkpoint-postgres
 
 # Extraction Engines
 firecrawl-py
+gunicorn
