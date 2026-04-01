@@ -12,9 +12,14 @@ class Config:
     # Azure OpenAI
     AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
     AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-    AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
-    AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+    AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
     AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
+    
+    # Model deployments — 2-tier strategy
+    # Deep model: GPT-5.1 (or GPT-4o as fallback) — used for final analysis in small batches
+    AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")  # Primary/deep model
+    # Fast model: GPT-5.1-codex-mini (or GPT-4o-mini as fallback) — used for cheap triage
+    AZURE_OPENAI_DEPLOYMENT_FAST = os.getenv("AZURE_OPENAI_DEPLOYMENT_FAST", os.getenv("AZURE_OPENAI_DEPLOYMENT"))
     
     # Tavily
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
@@ -63,25 +68,31 @@ CURRENT_CLIENTS = [
 
 # Ideal client profile for Confeções Lança
 CONFECOS_LANCA_PROFILE = """
-Confeções Lança is a Portuguese manufacturer specializing in high-quality men's suits and formal wear.
+Confeções Lança is a Portuguese manufacturer specializing in quality men's tailored clothing: suits, trousers, and waistcoats.
 
 IDEAL CLIENT PROFILE:
-- Boutique menswear retailers (not large department stores)
-- Focus on premium/luxury segment (suits €500+)
+- Independent menswear retailers and boutiques (NOT large department stores or chains)
+- Focus on MID-TO-HIGH range segment with the following price ranges:
+  • Complete suits (jacket + trousers): €500–€1,700
+  • Jackets only: €300–€1,000
+  • Trousers only: €250–€750
+- NOT ultra-luxury/bespoke ateliers (e.g., Savile Row level is too high-end)
 - Prefer brands with fewer than 20 physical stores (easier to establish partnership)
-- Value quality European manufacturing
-- Looking for reliable, long-term manufacturing partners
-- Interested in private label or white-label production
+- Brands that sell tailored suits AND/OR separate pieces (jackets, trousers, waistcoats) with a tailoring/sartorial identity
+- Brands with own label collections or interested in private label/white-label production
+- Value quality European manufacturing at competitive prices
+- MUST be headquartered in the target city (not just having a physical store there)
 
 WHAT WE OFFER:
-- High-quality suits manufactured in Portugal
-- Competitive pricing for premium quality
+- Quality suits, trousers, and waistcoats manufactured in Portugal
+- Competitive pricing for the mid-to-high segment
 - Flexible minimum order quantities
-- Customization and private label options
+- Own label collection production and private label options
 - European craftsmanship with modern techniques
 
 TARGET MARKETS:
 - United Kingdom, USA, Germany, France, Nordic countries
 - Growing interest in South America and Middle East
-- Premium/luxury segment retailers
+- Mid-to-high range tailored menswear retailers
+- Price targets: Suits €500–€1,700 | Jackets €300–€1,000 | Trousers €250–€750
 """

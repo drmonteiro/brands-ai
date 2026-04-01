@@ -1,527 +1,248 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { BrandLead } from "@/lib/types";
-import { BrandCard } from "@/components/BrandCard";
-import { FilterPanel, ProspectFilters } from "@/components/FilterPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Sparkles, Globe2, Target, Users, ArrowRight, MapPin, Database, RefreshCw, CheckCircle2 } from "lucide-react";
+import { 
+  Search, 
+  MapPin, 
+  RefreshCw, 
+  ArrowRight, 
+  Users, 
+  TrendingUp,
+  Globe,
+  Sparkles,
+  CheckCircle2,
+} from "lucide-react";
 
 export default function Home() {
   const [city, setCity] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [verifiedBrands, setVerifiedBrands] = useState<BrandLead[]>([]);
-  const [filteredBrands, setFilteredBrands] = useState<BrandLead[]>([]);
-  const [exchangeRate, setExchangeRate] = useState<number>(1.08);
   const [forceRefresh, setForceRefresh] = useState(false);
-  const [isCached, setIsCached] = useState(false);
   const [searchedCity, setSearchedCity] = useState("");
-  const [approvalState, setApprovalState] = useState<{
-    type: "discovery" | "persistence";
-    threadId: string;
-    queries?: string[];
-    potentialBrands?: BrandLead[];
-  } | null>(null);
-  const [filters, setFilters] = useState<ProspectFilters>({
-    storeSize: null,
-    priceRange: null,
-    minStores: null,
-    maxStores: null,
-    minPrice: null,
-    maxPrice: null,
-  });
-
-  const handleResume = async (threadId: string, node: string, action: string, data?: any) => {
-    console.log("[Resume] Resuming for thread:", threadId, "at node:", node);
-    setIsSearching(true);
-    setApprovalState(null);
-
-    try {
-      const response = await fetch("http://127.0.0.1:8000/api/prospect/resume", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          thread_id: threadId,
-          node: node,
-          action: action,
-          data: data,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Falha ao retomar pesquisa");
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) throw new Error("No response stream");
-
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const messages = buffer.split("\n\n");
-        buffer = messages.pop() || "";
-
-        for (const message of messages) {
-          if (message.startsWith("data: ")) {
-            try {
-              const result = JSON.parse(message.slice(6));
-              if (result.type === "complete") {
-                setVerifiedBrands(result.verifiedBrands || []);
-                setExchangeRate(result.exchangeRate || 1.08);
-              } else if (result.type === "waiting_approval") {
-                setApprovalState({
-                  type: result.next_node === "discovery" ? "discovery" : "persistence",
-                  threadId: result.thread_id,
-                  queries: result.queries,
-                  potentialBrands: result.potential_brands,
-                });
-                setIsSearching(false);
-                return; // Wait for next approval
-              } else if (result.type === "error") {
-                console.error("Resume error:", result.message);
-                alert("Erro ao retomar: " + result.message);
-              }
-            } catch (e) {
-              console.warn("Failed to parse resume SSE", e);
-            }
-          }
-        }
-      }
-    } catch (error: any) {
-      console.error("Resume connection error:", error);
-      alert("Erro ao ligar ao servidor para retomar: " + error.message);
-    } finally {
-      setIsSearching(false);
-    }
-  };
+  const [searchComplete, setSearchComplete] = useState(false);
 
   const handleSearch = async () => {
-    console.log("[Search] Initiating for city:", city);
-    if (!city.trim()) {
-      alert("Por favor, introduza o nome de uma cidade");
-      return;
-    }
-
+    if (!city.trim()) return;
     setIsSearching(true);
-    setVerifiedBrands([]);
-    setIsCached(false);
+    setSearchComplete(false);
     setSearchedCity(city.trim());
 
     try {
-      console.log("[Search] Fetching from API...");
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
       const response = await fetch(`${API_URL}/api/prospect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ city: city.trim(), force_refresh: forceRefresh }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Falha ao iniciar pesquisa");
-      }
+      if (!response.ok) throw new Error("Falha ao iniciar pesquisa");
 
       const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (!reader) {
-        throw new Error("No response stream");
-      }
-
-      console.log("[Search] Stream opened, reading events...");
-      let buffer = "";
+      if (!reader) throw new Error("No response stream");
 
       while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          console.log("[SSE] Stream ended");
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const messages = buffer.split("\n\n");
-        buffer = messages.pop() || "";
-
-        for (const message of messages) {
-          if (message.startsWith("data: ")) {
-            try {
-              const jsonStr = message.slice(6);
-              const data = JSON.parse(jsonStr);
-              console.log("[SSE] Received event:", data.type);
-
-              if (data.type === "complete") {
-                console.log("[SSE] Complete! Brands:", data.verifiedBrands?.length, "Cached:", data.cached);
-                setVerifiedBrands(data.verifiedBrands || []);
-                setExchangeRate(data.exchangeRate || 1.08);
-                setIsCached(data.cached === true);
-              } else if (data.type === "error") {
-                console.error("[SSE] Error from server:", data.message);
-                alert("Erro no servidor: " + data.message);
-              } else if (data.type === "progress") {
-                console.log("[SSE] Progress:", data.message);
-              } else if (data.type === "waiting_approval") {
-                console.log("[SSE] Waiting for approval at:", data.next_node);
-                setIsSearching(false); // Stop the main spinner
-                setApprovalState({
-                  type: data.next_node === "discovery" ? "discovery" : "persistence",
-                  threadId: data.thread_id,
-                  queries: data.queries,
-                  potentialBrands: data.potential_brands,
-                });
-              }
-            } catch (parseError) {
-              console.warn("[SSE] Failed to parse:", message.slice(0, 200));
-            }
-          }
-        }
+        const { done } = await reader.read();
+        if (done) break;
       }
-
-      if (buffer.startsWith("data: ")) {
-        try {
-          const data = JSON.parse(buffer.slice(6));
-          if (data.type === "complete") {
-            setVerifiedBrands(data.verifiedBrands || []);
-            setExchangeRate(data.exchangeRate || 1.08);
-            setIsCached(data.cached === true);
-          }
-        } catch {
-          console.warn("[SSE] Could not parse final buffer");
-        }
-      }
+      
+      setSearchComplete(true);
     } catch (error: any) {
       console.error("Search error:", error);
-      alert("Erro ao ligar ao servidor: " + error.message);
+      alert("Erro ao pesquisar: " + error.message);
     } finally {
       setIsSearching(false);
     }
   };
 
-  const handleSendEmail = async (brand: BrandLead) => {
-    try {
-      const response = await fetch("http://127.0.0.1:8000/api/approve-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          brandName: brand.name,
-          brandData: brand,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || "Falha ao enviar email");
-      }
-    } catch (error) {
-      console.error("Email error:", error);
-      throw error;
-    }
-  };
-
-  // Fetch filtered prospects from API
-  const fetchFilteredProspects = async () => {
-    if (!city.trim()) return;
-
-    try {
-      const params = new URLSearchParams();
-      params.append("city", city.trim());
-
-      if (filters.minStores !== null && filters.minStores !== undefined) params.append("min_stores", filters.minStores.toString());
-      if (filters.maxStores !== null && filters.maxStores !== undefined) params.append("max_stores", filters.maxStores.toString());
-      if (filters.minPrice !== null && filters.minPrice !== undefined) params.append("min_price", filters.minPrice.toString());
-      if (filters.maxPrice !== null && filters.maxPrice !== undefined) params.append("max_price", filters.maxPrice.toString());
-
-      const response = await fetch(`http://127.0.0.1:8000/api/prospects?${params.toString()}`);
-
-      if (!response.ok) {
-        throw new Error("Falha ao obter prospects filtrados");
-      }
-
-      const data = await response.json();
-
-      // Convert API response to BrandLead format
-      const prospects = data.prospects?.map((p: any) => {
-        const materialComposition = typeof p.material_composition === 'string'
-          ? JSON.parse(p.material_composition)
-          : (p.material_composition || []);
-
-        return {
-          name: p.name,
-          websiteUrl: p.website_url,
-          storeCount: p.store_count,
-          averageSuitPriceUSD: (p.avg_suit_price_eur || 0) * exchangeRate, // Convert EUR to USD
-          city: p.city,
-          originCountry: p.country,
-          verified: p.avg_suit_price_eur > 0,
-          brandStyle: p.brand_style,
-          businessModel: p.business_model,
-          companyOverview: p.description || p.company_overview || "Informação não disponível",
-          detailedDescription: p.detailed_description || "",
-          storeLocations: typeof p.store_locations === 'string' ? JSON.parse(p.store_locations) : (p.store_locations || []),
-          verificationLog: [
-            `Pontuação: ${p.final_score?.toFixed(1)}/100`,
-            `Similar a: ${p.most_similar_client || "N/D"}`,
-          ],
-          passesConstraints: true,
-          woolPercentage: materialComposition.length > 0 ? materialComposition[0] : null,
-          madeToMeasure: p.made_to_measure || false,
-          locationQuality: p.location_quality || (p.location_score > 0 ? "premium" : "standard"),
-          locationScore: p.location_score || 0,
-          fitScore: p.fit_score || 0,
-          contactName: p.contact_name,
-          contactRole: p.contact_role,
-          contactEmail: p.contact_email,
-          contactPhone: p.contact_phone
-        };
-      }) || [];
-
-      setFilteredBrands(prospects);
-    } catch (error) {
-      console.error("Filter error:", error);
-      // Fallback to local filtering if API fails
-      applyLocalFilters();
-    }
-  };
-
-  // Apply filters locally (fallback)
-  const applyLocalFilters = () => {
-    let filtered = [...verifiedBrands];
-
-    if (filters.minStores !== null) {
-      filtered = filtered.filter(b => b.storeCount >= filters.minStores!);
-    }
-    if (filters.maxStores !== null) {
-      filtered = filtered.filter(b => b.storeCount <= filters.maxStores!);
-    }
-    if (filters.minPrice !== null) {
-      filtered = filtered.filter(b => b.averageSuitPriceUSD >= filters.minPrice! / exchangeRate);
-    }
-    if (filters.maxPrice !== null) {
-      filtered = filtered.filter(b => b.averageSuitPriceUSD <= filters.maxPrice! / exchangeRate);
-    }
-
-    setFilteredBrands(filtered);
-  };
-
-  // Apply filters when they change
-  useEffect(() => {
-    if (verifiedBrands.length > 0) {
-      // Try API first, fallback to local
-      const hasApiFilters = filters.minStores !== null || filters.maxStores !== null ||
-        filters.minPrice !== null || filters.maxPrice !== null;
-
-      if (hasApiFilters && city.trim()) {
-        fetchFilteredProspects();
-      } else {
-        applyLocalFilters();
-      }
-    } else {
-      setFilteredBrands([]);
-    }
-  }, [filters, verifiedBrands, city, exchangeRate]);
-
-  // Initialize filtered brands when verified brands change
-  useEffect(() => {
-    if (verifiedBrands.length > 0) {
-      setFilteredBrands(verifiedBrands);
-    }
-  }, [verifiedBrands]);
-
-  const suggestedCities = ["Boston", "Austin", "Portland", "Charleston", "San Francisco"];
+  const suggestedCities = [
+    "Milano", "London", "Paris", "Berlin", 
+    "Munich", "Zurich", "Madrid", "Barcelona", 
+    "Manchester", "Edinburgh", "Geneva", "Stockholm"
+  ];
 
   return (
-    <div className="min-h-screen">
-      {/* Top Application Bar */}
-      <header className="bg-white border-b border-zinc-200 sticky top-0 z-20 px-8 py-4 flex justify-between items-center shadow-sm">
-        <div>
-          <h1 className="text-xl font-bold text-zinc-900">Prospecção de Clientes</h1>
-          <p className="text-xs text-zinc-500 font-medium">Confeções Lança • Sistema de Gestão</p>
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg">
-            <Users className="h-3.5 w-3.5 text-zinc-400" />
-            <span className="text-[10px] font-bold text-zinc-600 uppercase">Acesso Administrador</span>
+    <div className="min-h-screen bg-background font-sans">
+      {/* Page Header */}
+      <header className="bg-white border-b border-border sticky top-0 z-40 px-6 lg:px-10 py-4">
+        <div className="max-w-6xl mx-auto flex justify-between items-center">
+          <div>
+            <h1 className="text-lg font-semibold text-foreground">Prospeção de Marcas</h1>
+            <p className="text-sm text-muted-foreground">Encontre novas marcas por cidade</p>
           </div>
-          <Button variant="outline" className="h-10 rounded-lg border-zinc-200 text-xs font-bold uppercase">
-            Exportar Dados
-          </Button>
+          <div className="flex items-center gap-3">
+            <Link href="/saved-cities">
+              <Button variant="outline" size="sm" className="text-sm gap-2 rounded-lg">
+                <MapPin className="h-4 w-4" />
+                <span className="hidden sm:inline">Cidades Guardadas</span>
+              </Button>
+            </Link>
+            <Link href="/clients">
+              <Button variant="outline" size="sm" className="text-sm gap-2 rounded-lg">
+                <Users className="h-4 w-4" />
+                <span className="hidden sm:inline">Clientes</span>
+              </Button>
+            </Link>
+          </div>
         </div>
       </header>
 
-      <main className="p-8">
-        {/* Search & Tool Area */}
-        <div className="bg-white p-8 border border-zinc-200 rounded-2xl shadow-sm relative overflow-hidden group mb-12">
-          <div className="mb-6 flex justify-between items-end">
-            <div>
-              <h2 className="text-2xl font-bold text-zinc-900">Nova Pesquisa</h2>
-              <p className="text-xs text-zinc-500 font-medium">DEFINIR PARÂMETROS DE MERCADO</p>
+      <main className="max-w-6xl mx-auto px-6 lg:px-10 py-12 lg:py-20">
+        {/* Hero Section */}
+        <div className="text-center mb-16 smooth-entry">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-lanca-yellowLight border border-lanca-yellow/20 rounded-full mb-6">
+            <Sparkles className="h-3.5 w-3.5 text-lanca-yellowDark" />
+            <span className="text-xs font-medium text-lanca-yellowDark">Motor de Prospeção com IA</span>
+          </div>
+          <h2 className="text-4xl lg:text-5xl font-bold text-foreground mb-4 tracking-tight">
+            Descubra novos <span className="text-lanca-yellow">parceiros</span>
+          </h2>
+          <p className="text-lg text-muted-foreground max-w-xl mx-auto">
+            Insira uma cidade e a nossa IA encontra as melhores marcas de moda masculina para a Lança.
+          </p>
+        </div>
+
+        {/* Search Box */}
+        <div className="w-full max-w-2xl mx-auto mb-16 smooth-entry" style={{ animationDelay: "0.1s" }}>
+          <div className="bg-white p-2 rounded-xl shadow-medium border border-border">
+            <div className="flex gap-2">
+              <div className="flex-1 relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/40" />
+                <Input
+                  type="text"
+                  placeholder="Ex: Milano, London, Paris..."
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                  className="h-14 pl-12 pr-4 border-none focus-visible:ring-0 text-base placeholder:text-muted-foreground/40 rounded-lg bg-transparent"
+                />
+              </div>
+              <Button
+                onClick={handleSearch}
+                disabled={isSearching || !city.trim()}
+                className="h-14 px-8 bg-lanca-black hover:bg-lanca-charcoal text-white font-medium rounded-lg transition-all duration-200 shadow-soft"
+              >
+                {isSearching ? (
+                  <div className="flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>A pesquisar...</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span>Pesquisar</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </div>
+                )}
+              </Button>
             </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 cursor-pointer group/check">
+            {/* Options row */}
+            <div className="flex items-center justify-between px-4 pt-2 pb-1">
+              <label className="flex items-center gap-2.5 cursor-pointer group">
+                <div className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-200 ${forceRefresh ? 'bg-lanca-yellow' : 'bg-gray-200'}`}>
+                  <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${forceRefresh ? 'translate-x-4' : 'translate-x-0'}`} />
+                </div>
                 <input
                   type="checkbox"
                   checked={forceRefresh}
                   onChange={(e) => setForceRefresh(e.target.checked)}
-                  className="w-4 h-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500 transition-all cursor-pointer"
+                  className="hidden"
                 />
-                <span className="text-[10px] font-bold text-zinc-500 uppercase">Ignorar Cache</span>
+                <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                  Forçar nova pesquisa
+                </span>
               </label>
-            </div>
-          </div>
-
-          <div className="flex gap-4">
-            <div className="flex-1 relative">
-              <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-500" />
-              <Input
-                type="text"
-                placeholder="Introduza o nome da cidade (ex: Milan, London, New York)..."
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                className="h-14 pl-12 pr-4 border-zinc-200 rounded-xl bg-zinc-50 focus:bg-white text-base"
-              />
-            </div>
-            <Button
-              onClick={handleSearch}
-              disabled={isSearching}
-              className="h-14 px-10 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl"
-            >
-              {isSearching ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Iniciar Pesquisa IA"}
-            </Button>
-          </div>
-
-          <div className="mt-6 flex items-center gap-4">
-            <span className="text-[10px] font-bold text-zinc-400 uppercase">Sugestões:</span>
-            <div className="flex gap-4">
-              {suggestedCities.map((sc) => (
-                <button
-                  key={sc}
-                  onClick={() => setCity(sc)}
-                  className="text-[10px] font-bold text-zinc-500 hover:text-blue-600 uppercase transition-colors"
-                >
-                  {sc}
-                </button>
-              ))}
+              {searchComplete && (
+                <div className="flex items-center gap-1.5 text-emerald-600">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span className="text-xs font-medium">Pesquisa concluída para {searchedCity}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Results Area */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
-          {/* Filter Sidebar (only show if results) */}
-          <aside className="lg:col-span-3 lg:sticky lg:top-32 space-y-8">
-            <div className="bg-white p-6 border border-zinc-200 rounded-xl shadow-sm">
-              <div className="flex items-center gap-2 mb-6 pb-4 border-b border-zinc-100">
-                <Target className="h-4 w-4 text-blue-600" />
-                <h4 className="text-[10px] font-bold tracking-widest uppercase text-zinc-900">Filtros</h4>
-              </div>
-              <FilterPanel
-                onFilterChange={setFilters}
-                activeFilters={filters}
-              />
-            </div>
-
-            <div className="bg-blue-50/50 p-6 border border-blue-100 rounded-xl">
-              <div className="flex items-center gap-2 mb-4">
-                <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-                <span className="text-[9px] font-bold tracking-widest uppercase text-blue-600">DICA IA</span>
-              </div>
-              <p className="text-[11px] text-zinc-600 leading-relaxed font-medium">
-                O foco em boutiques de 1-5 lojas maximiza a diversificação geográfica e reduz a dependência de grandes contas.
-              </p>
-            </div>
-          </aside>
-
-          {/* Main Content Area */}
-          <div className="lg:col-span-9 space-y-8">
-            {/* Approval Node Removed */}
-
-            {/* Results Grid / List */}
-            {isSearching ? (
-              <div className="bg-white p-20 border border-zinc-200 rounded-2xl text-center shadow-sm">
-                <div className="inline-block mb-8">
-                  <div className="h-14 w-14 border-4 border-zinc-100 border-t-blue-600 rounded-full animate-spin" />
+        {/* Success banner */}
+        {searchComplete && (
+          <div className="w-full max-w-2xl mx-auto mb-16 smooth-entry">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
                 </div>
-                <h3 className="text-2xl font-bold text-zinc-900 mb-2 overflow-hidden whitespace-nowrap">
-                  Explorando <span className="text-blue-600">{searchedCity || city}...</span>
-                </h3>
-                <div className="h-1.5 w-48 bg-zinc-100 mx-auto mt-6 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-600 animate-progress-lux" />
-                </div>
-                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em] mt-6">A ANALISAR MERCADO EM TEMPO REAL</p>
-              </div>
-            ) : filteredBrands.length === 0 ? (
-              <div className="bg-white p-32 border border-zinc-200 text-center border-dashed">
-                <Globe2 className="h-12 w-12 text-zinc-100 mx-auto mb-6" />
-                <h3 className="text-xl font-serif text-zinc-400">Aguardando Parâmetros de Pesquisa</h3>
-                <p className="text-xs text-zinc-300 mt-2 uppercase tracking-widest">Introduza uma cidade no terminal de prospecção acima</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between pb-6 border-b border-zinc-100">
-                  <div className="flex items-center gap-4">
-                    <span className="px-3 py-1 bg-zinc-900 text-white text-[10px] font-bold tracking-widest uppercase">
-                      {filteredBrands.length} RESULTADOS EM {searchedCity || city}
-                    </span>
-                    {isCached && (
-                      <span className="flex items-center gap-1.5 px-3 py-1 bg-zinc-50 border border-zinc-200 text-zinc-400 text-[9px] font-bold uppercase tracking-widest">
-                        <Database className="h-3 w-3" />
-                        CACHE
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase">Ordernar:</span>
-                    <select className="bg-transparent text-[10px] font-bold uppercase outline-none cursor-pointer text-zinc-700">
-                      <option>Fit Score</option>
-                      <option>Preço (Desc)</option>
-                      <option>Preço (Asc)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-6">
-                  {filteredBrands.map((brand, idx) => (
-                    <BrandCard
-                      key={idx}
-                      brand={brand}
-                      onSendEmail={handleSendEmail}
-                    />
-                  ))}
+                <div>
+                  <p className="text-sm font-medium text-emerald-900">Pesquisa concluída com sucesso!</p>
+                  <p className="text-xs text-emerald-700">Resultados para <strong>{searchedCity}</strong> guardados na base de dados.</p>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-      </main >
-
-      <footer className="mt-20 border-t border-zinc-200 bg-white p-12">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8 text-zinc-400">
-          <p className="text-[10px] font-bold tracking-widest uppercase">
-            © 2024 CONFEÇÕES LANÇA • PROSPECÇÃO INTELIGENTE
-          </p>
-          <div className="flex items-center gap-8">
-            <div className="flex items-center gap-2">
-              <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-              <span className="text-[9px] font-bold tracking-widest text-zinc-400 uppercase">Motor GPT-4o Otimizado</span>
-            </div>
-            <div className="h-4 w-[1px] bg-zinc-200" />
-            <div className="flex items-center gap-2">
-              <Database className="h-3.5 w-3.5 text-zinc-400" />
-              <span className="text-[9px] font-bold tracking-widest text-zinc-400 uppercase">PostgreSQL + pgvector</span>
+              <Link href="/saved-cities">
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs gap-1.5">
+                  Ver resultados <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
             </div>
           </div>
+        )}
+
+        {/* Suggested Cities */}
+        <div className="w-full max-w-3xl mx-auto mb-20 smooth-entry" style={{ animationDelay: "0.2s" }}>
+          <div className="flex items-center gap-3 mb-5">
+            <Globe className="h-4 w-4 text-muted-foreground/50" />
+            <p className="text-sm font-medium text-muted-foreground">Cidades sugeridas</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {suggestedCities.map((c) => (
+              <button
+                key={c}
+                onClick={() => { setCity(c); }}
+                className="px-4 py-2 bg-white border border-border text-sm text-muted-foreground rounded-lg hover:border-lanca-yellow hover:text-foreground hover:shadow-gold-sm transition-all duration-200"
+              >
+                {c}
+              </button>
+            ))}
+          </div>
         </div>
-      </footer >
-    </div >
+
+        {/* Quick Access Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-3xl mx-auto smooth-entry" style={{ animationDelay: "0.3s" }}>
+          <Link href="/saved-cities" className="group">
+            <div className="card-lanca p-6 flex items-start gap-4">
+              <div className="w-12 h-12 bg-lanca-yellowLight rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-lanca-yellow transition-colors duration-200">
+                <MapPin className="h-5 w-5 text-lanca-yellowDark group-hover:text-lanca-black transition-colors duration-200" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-foreground mb-1 group-hover:text-lanca-yellowDark transition-colors">Cidades Guardadas</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Consulte todas as marcas encontradas, organizadas por cidade. Filtre e analise cada prospect.
+                </p>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground/30 mt-1 group-hover:text-lanca-yellow group-hover:translate-x-1 transition-all duration-200 flex-shrink-0" />
+            </div>
+          </Link>
+
+          <Link href="/clients" className="group">
+            <div className="card-lanca p-6 flex items-start gap-4">
+              <div className="w-12 h-12 bg-lanca-yellowLight rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-lanca-yellow transition-colors duration-200">
+                <Users className="h-5 w-5 text-lanca-yellowDark group-hover:text-lanca-black transition-colors duration-200" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-foreground mb-1 group-hover:text-lanca-yellowDark transition-colors">Rede de Clientes</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Veja os nossos parceiros ativos em todo o mundo — o portfolio de excelência da Lança.
+                </p>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground/30 mt-1 group-hover:text-lanca-yellow group-hover:translate-x-1 transition-all duration-200 flex-shrink-0" />
+            </div>
+          </Link>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="border-t border-border py-6 text-center bg-white">
+        <p className="text-xs text-muted-foreground">
+          Confeções Lança © 2026 · Desde 1973 · Plataforma Comercial
+        </p>
+      </footer>
+    </div>
   );
 }

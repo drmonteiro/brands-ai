@@ -1,99 +1,57 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { FilterPanel, ProspectFilters } from "@/components/FilterPanel";
-import {
-    MapPin,
-    ArrowLeft,
-    Users,
-    DollarSign,
-    Star,
-    RefreshCw,
-    ChevronRight,
+import { 
+    ArrowLeft, 
+    Globe, 
+    Users, 
+    RefreshCw, 
+    MapPin, 
+    TrendingUp,
     Database,
+    ChevronRight,
     Search,
-    Filter,
-    Mail,
-    Info,
-    Sparkles,
-    CheckCircle2
+    BarChart3,
 } from "lucide-react";
-
-import { BrandLead } from "@/lib/types";
 import { BrandCard } from "@/components/BrandCard";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { BrandLead } from "@/lib/types";
 
-interface CityStats {
+interface CityData {
     city: string;
     total_prospects: number;
     avg_score: number;
-    avg_price_eur: number;
-    last_searched: string;
+    top_score: number;
+    new_count: number;
+    contacted_count: number;
+    converted_count: number;
 }
 
 export default function SavedCitiesPage() {
-    const [cities, setCities] = useState<CityStats[]>([]);
-    const [selectedCity, setSelectedCity] = useState<string | null>(null);
+    const [savedCities, setSavedCities] = useState<CityData[]>([]);
     const [prospects, setProspects] = useState<BrandLead[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [selectedCity, setSelectedCity] = useState<string | null>(null);
+    const [isLoadingCities, setIsLoadingCities] = useState(true);
     const [isLoadingProspects, setIsLoadingProspects] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [activeFilters, setActiveFilters] = useState<ProspectFilters>({
-        storeSize: null,
-        priceRange: null,
-        minStores: null,
-        maxStores: null,
-        minPrice: null,
-        maxPrice: null,
-    });
-
-    const exchangeRate = 1.08;
-
-    const filteredProspects = useMemo(() => {
-        return prospects.filter((prospect) => {
-            if (activeFilters.minStores != null || activeFilters.maxStores != null) {
-                const storeCount = prospect.storeCount || 0;
-                if (activeFilters.minStores != null && storeCount < activeFilters.minStores) return false;
-                if (activeFilters.maxStores != null && storeCount > activeFilters.maxStores) return false;
-            }
-            if (activeFilters.minPrice != null || activeFilters.maxPrice != null) {
-                // Convert USD back to EUR for filter comparison if necessary, or compare with USD
-                // Here we usually filter by EUR in backend, but locally we'll use USD for consistency
-                const price = prospect.averageSuitPriceUSD || 0;
-                if (price === 0) return false;
-                // Note: FilterPanel uses EUR, so we convert filters to USD
-                if (activeFilters.minPrice != null && price < activeFilters.minPrice * exchangeRate) return false;
-                if (activeFilters.maxPrice != null && price > activeFilters.maxPrice * exchangeRate) return false;
-            }
-            return true;
-        });
-    }, [prospects, activeFilters]);
 
     useEffect(() => {
         fetchCities();
     }, []);
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
     const fetchCities = async () => {
-        setIsLoading(true);
-        setError(null);
+        setIsLoadingCities(true);
         try {
+            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
             const response = await fetch(`${API_URL}/api/cities`);
-            if (!response.ok) throw new Error("Falha ao obter cidades");
             const data = await response.json();
-            setCities(data.cities || []);
-
-            // Auto-select first city if available and none selected
-            if (data.cities && data.cities.length > 0 && !selectedCity) {
-                fetchProspectsForCity(data.cities[0].city);
-            }
-        } catch (err) {
-            console.error("Error fetching cities:", err);
-            setError("Erro ao carregar cidades guardadas");
+            setSavedCities(data.cities || []);
+        } catch (error) {
+            console.error("Error fetching cities:", error);
+            setSavedCities([]);
         } finally {
-            setIsLoading(false);
+            setIsLoadingCities(false);
         }
     };
 
@@ -101,187 +59,221 @@ export default function SavedCitiesPage() {
         setIsLoadingProspects(true);
         setSelectedCity(city);
         try {
-            const response = await fetch(`${API_URL}/api/prospects?city=${encodeURIComponent(city)}&limit=50`);
-            if (!response.ok) throw new Error("Falha ao obter prospects");
+            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+            const response = await fetch(`${API_URL}/api/prospects?city=${encodeURIComponent(city)}`);
             const data = await response.json();
-
-            const mappedProspects: BrandLead[] = (data.prospects || []).map((p: any) => {
-                const materialComposition = typeof p.material_composition === 'string'
-                    ? JSON.parse(p.material_composition)
-                    : (p.material_composition || []);
-
-                return {
-                    name: p.name,
-                    websiteUrl: p.website_url,
-                    storeCount: p.store_count,
-                    averageSuitPriceUSD: (p.avg_suit_price_eur || 0) * exchangeRate,
-                    city: p.city,
-                    originCountry: p.country,
-                    verified: p.avg_suit_price_eur > 0,
-                    brandStyle: p.brand_style,
-                    businessModel: p.business_model,
-                    companyOverview: p.company_overview || p.description || "Informação não disponível",
-                    detailedDescription: p.detailed_description || "",
-                    storeLocations: typeof p.store_locations === 'string' ? JSON.parse(p.store_locations) : (p.store_locations || []),
-                    verificationLog: [
-                        `Pontuação: ${p.final_score?.toFixed(1)}/100`,
-                        `Similar a: ${p.most_similar_client || "N/D"}`,
-                        p.similarity_explanation ? `Explicação: ${p.similarity_explanation}` : ""
-                    ].filter(Boolean) as string[],
-                    passesConstraints: true,
-                    woolPercentage: materialComposition.length > 0 ? materialComposition[0] : null,
-                    madeToMeasure: p.made_to_measure || false,
-                    locationQuality: p.location_quality || (p.location_score > 0 ? "premium" : "standard"),
-                    locationScore: p.location_score || 0,
-                    fitScore: p.fit_score || 0,
-                    contactName: p.contact_name,
-                    contactRole: p.contact_role,
-                    contactEmail: p.contact_email,
-                    contactPhone: p.contact_phone
-                };
-            });
-
-            setProspects(mappedProspects);
-        } catch (err) {
-            console.error("Error fetching prospects:", err);
+            setProspects(data.prospects || []);
+        } catch (error) {
+            console.error("Error fetching prospects:", error);
             setProspects([]);
         } finally {
             setIsLoadingProspects(false);
         }
     };
 
-    const handleSendEmail = (brand: BrandLead) => {
-        const recipientEmail = "d.rmonteiro@hotmail.com";
-        const subject = `🚀 Novo Potencial Cliente para Lança: ${brand.name}`;
-        const body = `Olá Paulo,\n\nEncontrei este potencial cliente premium:\n\nNome: ${brand.name}\nWebsite: ${brand.websiteUrl}\nCidade: ${brand.city}\nScore: ${brand.verificationLog?.[0] || "N/D"}\n\nDescrição: ${brand.companyOverview}\n\nAtenciosamente,\nEquipa Lança Prospector AI`;
-        const mailtoLink = `mailto:${recipientEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-        window.location.href = mailtoLink;
+    const handleSendEmail = async (brandName: string, brandData: any) => {
+        try {
+            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+            const response = await fetch(`${API_URL}/api/email/send`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    brand_name: brandName,
+                    to_email: brandData.contactEmail || "comercial@lanca.pt",
+                }),
+            });
+            return response.ok;
+        } catch (error) {
+            console.error("Email error:", error);
+            return false;
+        }
     };
 
-    return (
-        <div className="min-h-screen">
-            {/* Top Application Bar */}
-            <header className="bg-white border-b border-zinc-200 sticky top-0 z-20 px-8 py-4 flex justify-between items-center shadow-sm">
-                <div>
-                    <h1 className="text-xl font-bold text-zinc-900">Arquivo Histórico</h1>
-                    <p className="text-xs text-zinc-500 font-medium">Confeções Lança • Prospecção de Mercado</p>
-                </div>
-                <div className="flex items-center gap-6">
-                    <Link href="/" className="inline-flex items-center gap-2 text-[10px] font-bold tracking-widest uppercase text-zinc-400 hover:text-zinc-900 transition-colors">
-                        <ArrowLeft className="h-3.5 w-3.5" />
-                        Nova Pesquisa
-                    </Link>
-                </div>
-            </header>
+    const safeCities = Array.isArray(savedCities) ? savedCities : [];
+    const totalProspectsCount = safeCities.reduce((acc, c) => acc + (c.total_prospects || 0), 0);
+    const safeProspects = Array.isArray(prospects) ? prospects : [];
+    const avgScore = safeProspects.length > 0 
+        ? Math.round(safeProspects.reduce((acc, p) => acc + (p.fit_score ?? p.fitScore ?? 0), 0) / safeProspects.length) 
+        : 0;
 
-            <main className="p-8">
-                <div className="grid lg:grid-cols-12 gap-12">
-                    {/* Sidebar: Cities List - More Compact */}
-                    <aside className="lg:col-span-2 space-y-6">
-                        <div className="bg-white border-r border-zinc-200 h-full p-4 pr-6">
-                            <div className="flex items-center justify-between mb-6 pb-4 border-b border-zinc-100">
-                                <h2 className="text-[10px] font-bold tracking-widest uppercase text-zinc-400">CIDADES</h2>
-                                <button onClick={fetchCities} className="text-zinc-300 hover:text-blue-600 transition-colors">
-                                    <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-                                </button>
+    return (
+        <div className="flex h-screen bg-background overflow-hidden font-sans">
+            {/* Cities Sidebar */}
+            <aside className="w-[320px] bg-white border-r border-border flex flex-col">
+                {/* Sidebar Header */}
+                <div className="p-5 border-b border-border">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="w-9 h-9 bg-lanca-yellowLight rounded-lg flex items-center justify-center">
+                            <Database className="h-4 w-4 text-lanca-yellowDark" />
+                        </div>
+                        <div>
+                            <h2 className="text-sm font-semibold text-foreground">Cidades Guardadas</h2>
+                            <p className="text-xs text-muted-foreground">{safeCities.length} cidades · {totalProspectsCount} marcas</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Cities List */}
+                <div className="flex-1 overflow-y-auto p-3">
+                    {isLoadingCities ? (
+                        <div className="flex items-center justify-center py-16">
+                            <RefreshCw className="h-5 w-5 text-muted-foreground animate-spin" />
+                        </div>
+                    ) : safeCities.length === 0 ? (
+                        <div className="text-center py-16 px-4">
+                            <Database className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+                            <p className="text-sm text-muted-foreground mb-1">Sem cidades guardadas</p>
+                            <p className="text-xs text-muted-foreground/60">Faça uma pesquisa na página de Prospeção</p>
+                        </div>
+                    ) : safeCities.map((cityData) => (
+                        <button
+                            key={cityData.city}
+                            onClick={() => fetchProspectsForCity(cityData.city)}
+                            className={`w-full flex items-center gap-3 p-3 rounded-lg transition-all duration-200 text-left mb-1 ${
+                                selectedCity === cityData.city
+                                    ? "bg-lanca-yellowLight border border-lanca-yellow/20 shadow-gold-sm"
+                                    : "hover:bg-muted/50"
+                            }`}
+                        >
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                                selectedCity === cityData.city 
+                                    ? "bg-lanca-yellow text-lanca-black" 
+                                    : "bg-muted text-muted-foreground"
+                            }`}>
+                                <MapPin className="h-4 w-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <span className={`text-sm font-medium block truncate ${
+                                    selectedCity === cityData.city ? "text-foreground" : "text-foreground"
+                                }`}>
+                                    {cityData.city}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                    {cityData.total_prospects} marcas encontradas
+                                </span>
+                            </div>
+                            <ChevronRight className={`h-4 w-4 flex-shrink-0 transition-colors ${
+                                selectedCity === cityData.city ? "text-lanca-yellowDark" : "text-muted-foreground/30"
+                            }`} />
+                        </button>
+                    ))}
+                </div>
+            </aside>
+
+            {/* Main Content */}
+            <main className="flex-1 overflow-y-auto bg-background">
+                {/* Header */}
+                <header className="sticky top-0 z-40 bg-white border-b border-border px-6 lg:px-8 py-4">
+                    <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-4">
+                            <Link href="/">
+                                <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground rounded-lg">
+                                    <ArrowLeft className="h-4 w-4" />
+                                    <span className="text-sm">Voltar</span>
+                                </Button>
+                            </Link>
+                            {selectedCity && (
+                                <>
+                                    <div className="h-5 w-px bg-border" />
+                                    <div className="flex items-center gap-2">
+                                        <MapPin className="h-4 w-4 text-lanca-yellow" />
+                                        <span className="text-sm font-semibold text-foreground">{selectedCity}</span>
+                                        <Badge className="text-xs bg-muted text-muted-foreground border-border rounded-md">
+                                            {safeProspects.length} marcas
+                                        </Badge>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </header>
+
+                <div className="p-6 lg:p-8 max-w-[1200px] mx-auto">
+                    {!selectedCity ? (
+                        /* Empty State */
+                        <div className="flex flex-col items-center justify-center h-[60vh] text-center smooth-entry">
+                            <div className="w-16 h-16 bg-muted rounded-xl flex items-center justify-center mb-6">
+                                <Search className="h-7 w-7 text-muted-foreground/40" />
+                            </div>
+                            <h3 className="text-xl font-semibold text-foreground mb-2">Selecione uma cidade</h3>
+                            <p className="text-sm text-muted-foreground max-w-sm mb-8">
+                                Escolha uma cidade na lista à esquerda para ver as marcas encontradas pela IA.
+                            </p>
+                            <div className="flex items-center gap-8 px-8 py-4 bg-white rounded-xl border border-border shadow-soft">
+                                <div className="text-center">
+                                    <p className="text-xs text-muted-foreground mb-1">Total de Marcas</p>
+                                    <p className="text-2xl font-bold text-foreground">{totalProspectsCount}</p>
+                                </div>
+                                <div className="h-10 w-px bg-border" />
+                                <div className="text-center">
+                                    <p className="text-xs text-muted-foreground mb-1">Cidades</p>
+                                    <p className="text-2xl font-bold text-foreground">{safeCities.length}</p>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-6 smooth-entry">
+                            {/* Stats Row */}
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="bg-white p-5 rounded-xl border border-border shadow-soft">
+                                    <div className="flex items-center gap-2 mb-3 text-muted-foreground">
+                                        <Users className="h-4 w-4" />
+                                        <span className="text-xs font-medium uppercase tracking-wide">Marcas</span>
+                                    </div>
+                                    <p className="text-2xl font-bold text-foreground">{safeProspects.length}</p>
+                                </div>
+                                <div className="bg-white p-5 rounded-xl border border-border shadow-soft">
+                                    <div className="flex items-center gap-2 mb-3 text-muted-foreground">
+                                        <TrendingUp className="h-4 w-4" />
+                                        <span className="text-xs font-medium uppercase tracking-wide">Score Médio</span>
+                                    </div>
+                                    <p className="text-2xl font-bold text-foreground">{avgScore}%</p>
+                                </div>
+                                <div className="bg-lanca-black p-5 rounded-xl shadow-medium col-span-2">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-xs text-white/50 font-medium uppercase tracking-wide mb-1">Cidade Selecionada</p>
+                                            <p className="text-2xl font-bold text-white">{selectedCity}</p>
+                                        </div>
+                                        <div className="w-12 h-12 bg-lanca-yellow rounded-lg flex items-center justify-center">
+                                            <Globe className="h-6 w-6 text-lanca-black" />
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            {isLoading ? (
-                                <div className="space-y-4">
-                                    {[1, 2, 3].map(i => <div key={i} className="h-16 bg-zinc-50 animate-pulse rounded-none" />)}
+                            {/* Prospects Header */}
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-sm font-semibold text-foreground">
+                                    Marcas encontradas em {selectedCity}
+                                </h3>
+                            </div>
+
+                            {/* Prospects Grid */}
+                            {isLoadingProspects ? (
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                    {[1, 2, 3, 4].map(i => (
+                                        <div key={i} className="h-64 rounded-xl bg-white border border-border animate-pulse" />
+                                    ))}
+                                </div>
+                            ) : safeProspects.length === 0 ? (
+                                <div className="text-center py-16 bg-white rounded-xl border border-border">
+                                    <Database className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+                                    <p className="text-sm text-muted-foreground">Nenhuma marca encontrada nesta cidade.</p>
                                 </div>
                             ) : (
-                                <div className="space-y-2">
-                                    {cities.map((cityData) => (
-                                        <button
-                                            key={cityData.city}
-                                            onClick={() => fetchProspectsForCity(cityData.city)}
-                                            className={`w-full p-3 rounded-lg transition-all text-left flex justify-between items-center group/item mb-1 ${selectedCity === cityData.city
-                                                ? "bg-blue-50 text-blue-700 font-bold"
-                                                : "text-zinc-600 hover:bg-zinc-50"
-                                                }`}
-                                        >
-                                            <div className="min-w-0 pr-2">
-                                                <p className="text-xs truncate">{cityData.city}</p>
-                                                <p className={`text-[9px] ${selectedCity === cityData.city ? "text-blue-500" : "text-zinc-400"}`}>
-                                                    {cityData.total_prospects} registos
-                                                </p>
-                                            </div>
-                                            {selectedCity === cityData.city && <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />}
-                                        </button>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                    {safeProspects.map((brand) => (
+                                        <BrandCard 
+                                            key={brand.id} 
+                                            brand={brand} 
+                                            onSendEmail={handleSendEmail} 
+                                        />
                                     ))}
                                 </div>
                             )}
                         </div>
-                    </aside>
-
-                    {/* Main Content Area - Wider */}
-                    <div className="lg:col-span-10">
-                        {!selectedCity ? (
-                            <div className="bg-white p-32 text-center border border-zinc-200 border-dashed">
-                                <Search className="h-12 w-12 text-zinc-100 mx-auto mb-6" />
-                                <h3 className="text-xl font-serif text-zinc-400">Selecione uma Cidade para Explorar</h3>
-                                <p className="text-[10px] font-bold text-zinc-300 mt-2 uppercase tracking-widest">Acesso aos registos históricos de prospecção</p>
-                            </div>
-                        ) : isLoadingProspects ? (
-                            <div className="bg-white p-32 text-center border border-zinc-200">
-                                <RefreshCw className="h-10 w-10 text-[#C9A84C] animate-spin mx-auto mb-6" />
-                                <p className="text-[10px] font-bold tracking-[0.3em] uppercase text-zinc-400">A Carregar Base de Dados...</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-12">
-                                {/* Header Results */}
-                                <div className="flex justify-between items-end pb-8 border-b border-zinc-200">
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-4">
-                                            <div className="w-8 h-1 bg-blue-600 rounded-full" />
-                                            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">RELATÓRIO DE MERCADO</span>
-                                        </div>
-                                        <h2 className="text-3xl font-bold text-zinc-900 capitalize">{selectedCity}</h2>
-                                    </div>
-                                    <div className="bg-zinc-50 p-4 border border-zinc-100 flex items-center gap-6">
-                                        <div className="text-center px-4">
-                                            <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Total</p>
-                                            <p className="text-lg font-serif">{filteredProspects.length}</p>
-                                        </div>
-                                        <div className="w-px h-8 bg-zinc-200" />
-                                        <div className="text-center px-4">
-                                            <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Score Médio</p>
-                                            <p className="text-lg font-bold text-blue-600">
-                                                {(prospects.reduce((acc, p) => acc + (parseFloat(p.verificationLog?.[0]?.split(': ')[1]?.split('/')[0] || "0")), 0) / (prospects.length || 1)).toFixed(1)}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Internal Sub-grid for Filters Sidebar + Results List */}
-                                <div className="grid grid-cols-12 gap-10">
-                                    {/* Sub-sidebar for Filters */}
-                                    <aside className="col-span-12 lg:col-span-3">
-                                        <FilterPanel onFilterChange={setActiveFilters} activeFilters={activeFilters} />
-
-                                        <div className="mt-6 p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
-                                            <p className="text-[10px] text-blue-600 font-bold uppercase mb-2">Análise Histórica</p>
-                                            <p className="text-[11px] text-zinc-500 leading-relaxed font-medium">
-                                                Estes resultados representam o estado do mercado à data da última prospecção.
-                                            </p>
-                                        </div>
-                                    </aside>
-
-                                    {/* Main Results Column */}
-                                    <div className="col-span-12 lg:col-span-9 space-y-6">
-                                        {filteredProspects.map((brand, idx) => (
-                                            <BrandCard
-                                                key={idx}
-                                                brand={brand}
-                                                onSendEmail={handleSendEmail}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    )}
                 </div>
             </main>
         </div>

@@ -30,24 +30,29 @@ async def get_db_conn():
 
 async def init_database():
     """
-    Initialize the PostgreSQL database with required tables.
+    Initialize the PostgreSQL database with required tables by running all migrations.
     """
-    schema_path = os.path.join(os.path.dirname(__file__), "..", "migrations", "001_initial_schema.sql")
-    if not os.path.exists(schema_path):
-        print(f"❌ Schema file not found at {schema_path}")
+    migrations_dir = os.path.join(os.path.dirname(__file__), "..", "migrations")
+    if not os.path.exists(migrations_dir):
+        print(f"❌ Migrations directory not found at {migrations_dir}")
         return
 
-    with open(schema_path, "r") as f:
-        schema_sql = f.read()
-
+    # Sort migrations by name
+    migration_files = sorted([f for f in os.listdir(migrations_dir) if f.endswith(".sql")])
+    
     try:
         pool = await PostgresManager.get_pool()
         async with pool.acquire() as conn:
-            await conn.execute(schema_sql)
-        print("[DATABASE] ✅ PostgreSQL database initialized")
+            for migration_file in migration_files:
+                path = os.path.join(migrations_dir, migration_file)
+                print(f"[DATABASE] Executing migration: {migration_file}...")
+                with open(path, "r") as f:
+                    schema_sql = f.read()
+                    await conn.execute(schema_sql)
+        print("[DATABASE] ✅ PostgreSQL database and feedback tables initialized")
     except Exception as e:
         print(f"[DATABASE] ❌ Initialization failed: {e}")
-        print("💡 Make sure Docker is running: 'docker-compose up -d'")
+        print("💡 Make sure Neon database is reachable and credentials correctly set in .env")
 
 
 # ============================================================================
@@ -144,8 +149,8 @@ async def save_prospect(
                 material_composition, sustainability_certs, made_to_measure,
                 heritage_brand, quality_score, similarity_score, location_score, location_quality,
                 final_score, fit_score, most_similar_client, similarity_explanation, status, discovered_at,
-                contact_name, contact_role, contact_email, contact_phone
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
+                contact_name, contact_role, contact_email, contact_phone, contact_linkedin
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
             ON CONFLICT (id) DO UPDATE SET
                 avg_suit_price_eur = EXCLUDED.avg_suit_price_eur,
                 final_score = EXCLUDED.final_score,
@@ -153,6 +158,7 @@ async def save_prospect(
                 contact_role = COALESCE(EXCLUDED.contact_role, prospects.contact_role),
                 contact_email = COALESCE(EXCLUDED.contact_email, prospects.contact_email),
                 contact_phone = COALESCE(EXCLUDED.contact_phone, prospects.contact_phone),
+                contact_linkedin = COALESCE(EXCLUDED.contact_linkedin, prospects.contact_linkedin),
                 updated_at = CURRENT_TIMESTAMP
         """,
             prospect_id,
@@ -186,7 +192,8 @@ async def save_prospect(
             str(prospect.get("contact_name", "")) if prospect.get("contact_name") else None,
             str(prospect.get("contact_role", "")) if prospect.get("contact_role") else None,
             str(prospect.get("contact_email", "")) if prospect.get("contact_email") else None,
-            str(prospect.get("contact_phone", "")) if prospect.get("contact_phone") else None
+            str(prospect.get("contact_phone", "")) if prospect.get("contact_phone") else None,
+            str(prospect.get("contact_linkedin", "")) if prospect.get("contact_linkedin") else None
         )
         
         print(f"[DATABASE] ✅ Saved to Postgres: {prospect.get('name')} ({city}) - Score: {scores.get('final_score', 0):.1f}")
@@ -402,6 +409,16 @@ async def get_prospects_filtered(
         
         count_query = f"SELECT COUNT(DISTINCT domain) FROM prospects {where_clause}"
         total_count = await conn.fetchval(count_query, *params)
+        
+        # Enrich with feedback history for each prospect
+        for p in prospects:
+            feedback_rows = await conn.fetch("""
+                SELECT feedback_type, comment, created_at, manager_name 
+                FROM prospect_feedback 
+                WHERE prospect_id = $1 
+                ORDER BY created_at DESC
+            """, p['id'])
+            p['feedback_history'] = [dict(r) for r in feedback_rows]
     
     return {
         "prospects": prospects,
@@ -607,6 +624,41 @@ async def get_existing_urls_for_city(city: str) -> set:
         return {row['domain'] for row in rows}
 
 
+async def get_prospect_id_by_url(url: str) -> Optional[str]:
+    """
+    Get prospect ID by website URL (normalized).
+    """
+    domain = normalize_url(url)
+    pool = await PostgresManager.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT id FROM prospects WHERE domain = $1 LIMIT 1", domain)
+        return str(row['id']) if row else None
+
+
+async def update_prospect_contact(prospect_id: str, contact_data: Dict):
+    """
+    Update prospect contact information.
+    """
+    pool = await PostgresManager.get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE prospects 
+            SET 
+                contact_name = COALESCE($1, contact_name),
+                contact_role = COALESCE($2, contact_role),
+                contact_email = COALESCE($3, contact_email),
+                contact_phone = COALESCE($4, contact_phone),
+                contact_linkedin = COALESCE($5, contact_linkedin),
+                updated_at = CURRENT_TIMESTAMP 
+            WHERE id = $6
+        """, 
+        contact_data.get("contact_name"),
+        contact_data.get("contact_role"),
+        contact_data.get("contact_email"),
+        contact_data.get("contact_phone"),
+        contact_data.get("contact_linkedin"),
+        prospect_id)
+
 async def update_prospect_status(prospect_id: str, status: str, notes: Optional[str] = None):
     """
     Update prospect status and notes.
@@ -619,7 +671,6 @@ async def update_prospect_status(prospect_id: str, status: str, notes: Optional[
             WHERE id = $3
         """, status, notes, prospect_id)
 
-
 async def get_prospect_by_id(prospect_id: str) -> Optional[Dict]:
     """
     Get a single prospect by ID.
@@ -627,7 +678,46 @@ async def get_prospect_by_id(prospect_id: str) -> Optional[Dict]:
     pool = await PostgresManager.get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM prospects WHERE id = $1", prospect_id)
-        return dict(row) if row else None
+        if not row:
+            return None
+            
+        prospect = dict(row)
+        
+        # Get feedback history for this prospect
+        feedback_rows = await conn.fetch("""
+            SELECT manager_name, feedback_type, comment, created_at 
+            FROM prospect_feedback 
+            WHERE prospect_id = $1 
+            ORDER BY created_at DESC
+        """, prospect_id)
+        
+        prospect["feedback_history"] = [dict(r) for r in feedback_rows]
+        return prospect
+
+
+async def save_prospect_feedback(
+    prospect_id: str, 
+    feedback_type: str, 
+    comment: str, 
+    manager_name: str = "Comercial"
+) -> Dict:
+    """
+    Save a new feedback from the sales team.
+    """
+    pool = await PostgresManager.get_pool()
+    async with pool.acquire() as conn:
+        # Save feedback entry
+        await conn.execute("""
+            INSERT INTO prospect_feedback (prospect_id, feedback_type, comment, manager_name)
+            VALUES ($1, $2, $3, $4)
+        """, prospect_id, feedback_type, comment, manager_name)
+        
+        # Also update the main prospect's status if it's a negative feedback
+        # This could be useful for filtering later
+        if feedback_type == "down":
+            await conn.execute("UPDATE prospects SET status = 'rejected' WHERE id = $1", prospect_id)
+            
+        return {"status": "saved", "prospect_id": prospect_id}
 
 
 async def delete_prospect(prospect_id: str):

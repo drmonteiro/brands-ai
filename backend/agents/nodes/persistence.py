@@ -1,11 +1,13 @@
 """
 Node 4: Persistence Node
 Finalizes selected brands and saves them to PostgreSQL with full scoring.
+Includes Contact Finder cascade for C-level discovery.
 """
 from typing import List, Dict, Any, Union
 from models import ProspectorState, BrandLead
-from services.database import save_prospect, get_existing_urls_for_city
+from services.database import save_prospect, get_existing_urls_for_city, get_prospect_id_by_url, update_prospect_contact
 from services.vector_db import calculate_prospect_score
+from services.contact_finder import find_contacts_for_brand
 from .utils import normalize_url
 
 async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
@@ -31,6 +33,35 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
         norm_url = normalize_url(url)
         
         if norm_url in existing_urls:
+            # [V3] Enrichment: even if duplicate, search for contacts if missing
+            try:
+                # Get existing from DB or use current state
+                existing_contact = {
+                    "contact_name": prospect_dict.get("contact_name"),
+                    "contact_role": prospect_dict.get("contact_role"),
+                    "contact_email": prospect_dict.get("contact_email"),
+                    "contact_phone": prospect_dict.get("contact_phone"),
+                    "contact_linkedin": prospect_dict.get("contact_linkedin"),
+                }
+                
+                # Check if we should find contacts (cascade)
+                contact_result = await find_contacts_for_brand(
+                    brand_name=prospect_dict["name"],
+                    brand_url=prospect_dict["website_url"],
+                    city=target_city,
+                    country=prospect_dict.get("country", ""),
+                    existing_contact=existing_contact,
+                )
+                
+                # If we found something new, update only the contact info
+                if any(contact_result.get(k) and not existing_contact.get(k) for k in contact_result):
+                    p_id = await get_prospect_id_by_url(prospect_dict["website_url"])
+                    if p_id:
+                        await update_prospect_contact(p_id, contact_result)
+                        new_progress.append(f"   👤 {prospect_dict['name']}: Contactos actualizados")
+            except Exception as e:
+                print(f"[PERSISTENCE] Enrichment error for {prospect_dict['name']}: {e}")
+            
             duplicate_count += 1
             continue
         
@@ -40,6 +71,7 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
         else:
             brand_obj, brand_dict = BrandLead(**brand), brand
             
+        # Build initial prospect dict
         prospect_dict = {
             "name": brand_dict["name"],
             "website_url": brand_dict.get("websiteUrl") or brand_dict.get("website_url"),
@@ -60,7 +92,34 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
             "contact_role": brand_dict.get("contactRole") or brand_dict.get("contact_role"),
             "contact_email": brand_dict.get("contactEmail") or brand_dict.get("contact_email"),
             "contact_phone": brand_dict.get("contactPhone") or brand_dict.get("contact_phone"),
+            "contact_linkedin": brand_dict.get("contactLinkedin") or brand_dict.get("contact_linkedin"),
         }
+        
+        # ============================================================
+        # CONTACT FINDER CASCADE — Search LinkedIn/Google for C-levels
+        # ============================================================
+        try:
+            existing_contact = {
+                "contact_name": prospect_dict.get("contact_name"),
+                "contact_role": prospect_dict.get("contact_role"),
+                "contact_email": prospect_dict.get("contact_email"),
+                "contact_phone": prospect_dict.get("contact_phone"),
+                "contact_linkedin": prospect_dict.get("contact_linkedin"),
+            }
+            contact_result = await find_contacts_for_brand(
+                brand_name=prospect_dict["name"],
+                brand_url=prospect_dict["website_url"],
+                city=target_city,
+                country=prospect_dict.get("country", ""),
+                existing_contact=existing_contact,
+            )
+            # Merge contact results into prospect
+            for key in ["contact_name", "contact_role", "contact_email", "contact_phone", "contact_linkedin"]:
+                if contact_result.get(key):
+                    prospect_dict[key] = contact_result[key]
+            new_progress.append(f"   👤 {prospect_dict['name']}: {contact_result.get('contact_name', '?')} ({contact_result.get('contact_role', '?')})")
+        except Exception as e:
+            print(f"[CONTACT-FINDER] Error for {prospect_dict['name']}: {e}")
         
         try:
             scores, similar_clients = await calculate_prospect_score(prospect_dict)

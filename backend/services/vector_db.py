@@ -43,31 +43,87 @@ def get_azure_embeddings() -> AzureOpenAIEmbeddings:
 
 def generate_client_profile_text(client: Dict) -> str:
     """
-    Generate a rich text description of a client for embedding.
+    Generate a rich, embedding-optimized text description of a Lança client.
+    
+    Enriched profile (V3) — includes partnership context, fabric preferences,
+    service model, and positioning for higher-quality vector similarity.
     """
     name = client.get("name", "Unknown")
+    brand_name = client.get("brand_name", name)
     country = client.get("country", "Unknown")
     city = client.get("city", None)
     years = client.get("years_as_client", None)
     brand_type = client.get("brand_type", "unknown")
     
-    # Location text
+    # Location
     location_text = f"{city}, {country}" if city and city != country else country
     
     # Price
     pvp = client.get("pvp_suits_eur", None)
-    price_text = f"suits priced at €{pvp}" if pvp else "price not public"
+    if pvp and isinstance(pvp, (int, float)):
+        if pvp >= 1000:
+            price_text = f"luxury suits priced at €{pvp}, targeting high-end clientele"
+        elif pvp >= 600:
+            price_text = f"premium suits priced at €{pvp}, mid-to-high segment"
+        else:
+            price_text = f"accessible premium suits priced at €{pvp}"
+    else:
+        price_text = "price positioning not public"
     
-    # Stores
+    # Store size
     stores = client.get("store_count", 0)
-    if stores <= 5: store_text = "small boutique"
-    elif stores <= 20: store_text = "medium chain"
-    else: store_text = "large chain"
+    if stores <= 2:
+        store_text = f"exclusive single-boutique operation with {stores} store(s)"
+    elif stores <= 5:
+        store_text = f"small boutique retailer with {stores} stores"
+    elif stores <= 10:
+        store_text = f"established small chain with {stores} stores"
+    elif stores <= 20:
+        store_text = f"medium-sized retailer with {stores} stores"
+    else:
+        store_text = f"larger chain with {stores} stores"
     
-    profile = f"{name} is a menswear brand from {location_text}. They are a {store_text} selling {price_text}."
-    if brand_type != "unknown": profile += f" Business type: {brand_type}."
+    # Business model
+    brand_style = client.get("brand_style", "Premium")
+    business_model = client.get("business_model", "Retail")
     
-    return profile
+    # Wool and MTM
+    wool = client.get("wool_percentage", "unknown")
+    mtm = client.get("made_to_measure", False)
+    wool_text = "uses 100% pure wool for all suits" if wool == "100%" else f"wool usage: {wool}"
+    mtm_text = "offers bespoke and made-to-measure tailoring services" if mtm else "focuses on ready-to-wear collections"
+    
+    # Brand type
+    if brand_type == "own_brand":
+        brand_type_text = "operates under their own brand name"
+    elif brand_type == "multibrand":
+        brand_type_text = f"multi-brand retailer distributing {brand_name}"
+    else:
+        brand_type_text = "independent retailer"
+    
+    # Partnership
+    years_text = f"Long-term {years}-year manufacturing partnership with Confeções Lança." if years else ""
+    tier = client.get("tier", "medium_value")
+    tier_text = {"high_value": "High-value client.", "medium_value": "Established partner.", "low_value": "Growing relationship."}.get(tier, "")
+    
+    # Description
+    description = client.get("description", "")
+    notes = client.get("notes", "")
+    
+    parts = [
+        f"{name} is a {brand_style.lower()} menswear brand based in {location_text}.",
+        f"They are a {store_text}.",
+        f"Price positioning: {price_text}.",
+        f"Materials: {wool_text}.",
+        f"Services: {mtm_text}.",
+        f"Business model: {business_model}. {brand_type_text.capitalize()}.",
+        years_text,
+        tier_text,
+        f"Profile: {description}" if description else "",
+        f"Key characteristics: independent boutique, European manufacturing, quality Portuguese suits, premium menswear retail.",
+    ]
+    
+    return " ".join(p for p in parts if p)
 
 
 # ============================================================================
@@ -323,15 +379,15 @@ def calculate_price_score(price: float) -> int:
     - Below €375 = 0 pts (should be filtered out)
     """
     if price == 0 or price is None:
-        return 15  # Unknown price - neutral score
+        return 12  # Unknown price - neutral score
     elif price >= IDEAL_PRICE_EUR:
-        return 30  # At or above median (ideal)
+        return 25  # At or above median (ideal)
     elif price >= 500:
-        return 20  # Good price point
+        return 18  # Good price point
     elif price >= HARD_FILTER_MIN_PRICE_EUR:
-        return 10  # Acceptable minimum
+        return 8   # Acceptable minimum
     else:
-        return 0  # Below threshold
+        return 0   # Below threshold
 
 
 def calculate_size_score(store_count: int) -> int:
@@ -346,15 +402,15 @@ def calculate_size_score(store_count: int) -> int:
     - 0 stores (B2B/unknown) = 25 pts (often good)
     """
     if store_count == 0:
-        return 25  # B2B/Manufacturing or unknown
+        return 15  # B2B/Manufacturing or unknown
     elif store_count <= IDEAL_MAX_STORES:
-        return 30  # At or below median (ideal)
+        return 20  # At or below median (ideal)
     elif store_count <= 10:
-        return 20  # Good size
+        return 15  # Good size
     elif store_count <= 20:
-        return 10  # Acceptable
+        return 8   # Acceptable
     elif store_count <= HARD_FILTER_MAX_STORES:
-        return 5   # Within range but large
+        return 4   # Within range but large
     else:
         return 0  # Too big
 
@@ -387,11 +443,11 @@ def calculate_mtm_score(made_to_measure: any) -> int:
     - Unknown = 8 pts (neutral)
     """
     if made_to_measure is True or str(made_to_measure).lower() == "true":
-        return 15  # Has MTM (like 78% of clients)
+        return 10  # Has MTM (like 78% of clients)
     elif made_to_measure is False or str(made_to_measure).lower() == "false":
-        return 5   # No MTM (like 22% of clients)
+        return 3   # No MTM (like 22% of clients)
     else:
-        return 8   # Unknown
+        return 5   # Unknown
 
 
 def get_market_strength_score(country_code: str) -> float:
@@ -412,14 +468,14 @@ async def calculate_prospect_score(prospect: Dict) -> Tuple[Dict, List[Dict]]:
     Calculate the final score for a prospect using DATA-DRIVEN scoring.
     
     NEW SCORING SYSTEM (based on 18 real Lança client analysis):
-    - Price Score: 0-30 pts (€800+ ideal)
-    - Size Score: 0-30 pts (1-4 stores ideal)
-    - Wool Score: 0-15 pts (100% wool required)
-    - MTM Score: 0-15 pts (78% of clients have MTM)
-    - Similarity Score: 0-10 pts (similar to 18 clients)
-    - Market Score: 0-10 pts (existing presence in country)
+    - Similarity Score: 0-20 pts (Matches Lança's "Golden Profile")
+    - Price Score: 0-25 pts (€800+ ideal)
+    - Size Score: 0-20 pts (1-4 stores ideal)
+    - Wool Score: 0-15 pts (100% wool focus)
+    - MTM Score: 0-10 pts (Made-to-measure capability)
+    - Market Score: 0-10 pts (Presence in priority markets)
     
-    Total: 0-100 points (simple, explainable)
+    Total: 0-100 points
     
     Also checks hard filters:
     - Price < €375 → rejection
@@ -459,12 +515,12 @@ async def calculate_prospect_score(prospect: Dict) -> Tuple[Dict, List[Dict]]:
     wool_score = calculate_wool_score(prospect.get("wool_percentage", "unknown"))
     mtm_score = calculate_mtm_score(prospect.get("made_to_measure", None))
     
-    # Similarity score (0-10 pts)
+    # Similarity score (0-20 pts)
     if similar_clients:
-        top_similarity = similar_clients[0]["similarity"]  # Best match
-        similarity_score = min(top_similarity * 0.1, 10)  # 0-10 pts
+        top_similarity = min(similar_clients[0]["similarity"], 100)  # Best match %
+        similarity_score = (top_similarity / 100) * 20  # Linear scale 0-20 pts
     else:
-        similarity_score = 5  # Neutral
+        similarity_score = 10  # Neutral
     
     # Market score (0-10 pts)
     country_code = prospect.get("country_code", "XX")
@@ -472,12 +528,12 @@ async def calculate_prospect_score(prospect: Dict) -> Tuple[Dict, List[Dict]]:
     
     # Calculate final score (simple addition, max 100)
     final_score = (
-        price_score +       # 0-30 pts
-        size_score +        # 0-30 pts
+        price_score +       # 0-25 pts
+        size_score +        # 0-20 pts
         wool_score +        # 0-15 pts
-        mtm_score +         # 0-15 pts
-        similarity_score +  # 0-10 pts
-        market_score        # 0-10 pts (reduced)
+        mtm_score +         # 0-10 pts
+        similarity_score +  # 0-20 pts
+        market_score        # 0-10 pts
     )
     
     # If fails hard filters, cap score at 40
@@ -515,11 +571,11 @@ async def calculate_prospect_score(prospect: Dict) -> Tuple[Dict, List[Dict]]:
         "passes_hard_filters": passes,
         "rejection_reason": rejection_reason,
         "breakdown": {
-            "price_score": price_score,       # 0-30
-            "size_score": size_score,         # 0-30
+            "price_score": price_score,       # 0-25
+            "size_score": size_score,         # 0-20
             "wool_score": wool_score,         # 0-15
-            "mtm_score": mtm_score,           # 0-15
-            "similarity_score": round(similarity_score, 2),  # 0-10
+            "mtm_score": mtm_score,           # 0-10
+            "similarity_score": round(similarity_score, 2),  # 0-20
             "market_score": round(market_score, 2),          # 0-10
         },
         "thresholds": {

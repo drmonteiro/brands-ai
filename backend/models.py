@@ -302,6 +302,12 @@ class ExtractedContent(BaseModel):
     """Content extracted from a URL"""
     url: str
     content: Optional[str] = None
+    # V3 fields for enhanced matching pipeline
+    quality_score: int = 0                          # Multi-language keyword score
+    query_origin: Optional[str] = None              # Which search axis found this
+    language_detected: Optional[str] = None         # ISO 639-1 (e.g., "en", "it", "fr")
+    price_confidence: float = 0.0                   # 0.0-1.0 confidence in price extraction
+    extraction_method: Optional[str] = None         # "tavily", "jina", "smart_nav"
 class WorkflowResumeRequest(BaseModel):
     """Request body to resume a paused agent workflow"""
     thread_id: str

@@ -31,8 +31,20 @@ CREATE TABLE IF NOT EXISTS prospects (
     similarity_explanation TEXT,
     status TEXT DEFAULT 'new',
     notes TEXT,
+    contact_name TEXT,
+    contact_role TEXT,
+    contact_email TEXT,
+    contact_phone TEXT,
+    contact_linkedin TEXT,
     discovered_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table for RGPD/GDPR Suppression (blocked domains)
+CREATE TABLE IF NOT EXISTS suppression_list (
+    domain TEXT PRIMARY KEY,
+    reason TEXT,
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Table for Lança's top clients (replaces vector_db.py CURRENT_CLIENTS and ChromaDB)

@@ -15,6 +15,7 @@ from services.database import (
     delete_prospect,
     get_prospects_filtered,
     get_filter_options,
+    save_prospect_feedback,
 )
 
 router = APIRouter(prefix="/api/prospects", tags=["prospects"])
@@ -22,6 +23,11 @@ router = APIRouter(prefix="/api/prospects", tags=["prospects"])
 class StatusUpdateRequest(BaseModel):
     status: str
     notes: Optional[str] = None
+
+class FeedbackRequest(BaseModel):
+    feedback_type: str  # 'up' or 'down'
+    comment: str
+    manager_name: Optional[str] = "Comercial"
 
 class SuppressionRequest(BaseModel):
     domain: str
@@ -96,3 +102,19 @@ async def remove_prospect(prospect_id: str):
     if not await delete_prospect(prospect_id):
         raise HTTPException(status_code=404, detail="Prospect não encontrado")
     return {"success": True}
+
+@router.post("/{prospect_id}/feedback")
+async def post_feedback(prospect_id: str, request: FeedbackRequest):
+    if request.feedback_type not in ["up", "down"]:
+        raise HTTPException(status_code=400, detail="Tipo de feedback inválido. Use 'up' ou 'down'.")
+    
+    if not request.comment or len(request.comment.strip()) < 3:
+        raise HTTPException(status_code=400, detail="O comentário é obrigatório e deve ter pelo menos 3 caracteres.")
+
+    result = await save_prospect_feedback(
+        prospect_id, 
+        request.feedback_type, 
+        request.comment, 
+        request.manager_name
+    )
+    return {"success": True, "data": result}

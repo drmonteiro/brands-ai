@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
-import { Playfair_Display, Outfit } from "next/font/google";
+import { Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
+import { AppProviders } from "@/components/AppProviders";
+
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-sans",
+  display: "swap",
+});
 
 const playfair = Playfair_Display({
   subsets: ["latin"],
@@ -9,16 +17,9 @@ const playfair = Playfair_Display({
   display: "swap",
 });
 
-const outfit = Outfit({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-sans",
-  display: "swap",
-});
-
 export const metadata: Metadata = {
-  title: "Confeções Lança | Excellence in Menswear Since 1973",
-  description: "Bespoke agentic lead generation for the world's finest boutique retailers. Precision, heritage, and innovation in every stitch.",
+  title: "Confeções Lança | Plataforma Comercial",
+  description: "Plataforma de prospeção e gestão comercial da Confeções Lança. Desde 1973.",
   icons: {
     icon: "/lanca-logo.png",
   },
@@ -32,14 +33,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt" className={`${playfair.variable} ${outfit.variable} scroll-smooth`}>
-      <body className="font-sans antialiased text-foreground bg-[#FAF8F5]">
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="flex-1 overflow-y-auto">
-            {children}
-          </main>
-        </div>
+    <html lang="pt" className={`${inter.variable} ${playfair.variable} scroll-smooth`}>
+      <body className="font-sans antialiased text-foreground bg-background">
+        <AppProviders>
+          <div className="flex min-h-screen">
+            <Sidebar />
+            <main className="flex-1 overflow-y-auto">
+              {children}
+            </main>
+          </div>
+        </AppProviders>
       </body>
     </html>
   );

@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import tailwindAnimate from "tailwindcss-animate";
 
 export default {
   darkMode: ["class"],
@@ -54,10 +55,11 @@ export default {
           "4": "hsl(var(--chart-4))",
           "5": "hsl(var(--chart-5))",
         },
-        // Confeções Lança Brand Colors
+        // Confeções Lança Brand Palette
         lanca: {
           yellow: "#F5C518",
-          yellowLight: "#FCD34D",
+          yellowLight: "#FEF9E7",
+          yellowMid: "#FCD34D",
           yellowDark: "#D4A514",
           black: "#1a1a1a",
           blackLight: "#2d2d2d",
@@ -65,38 +67,27 @@ export default {
           white: "#ffffff",
           cream: "#FAF8F5",
           warmGray: "#8B8680",
+          warmGrayLight: "#B8B3AC",
         },
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
-        "2xl": "1rem",
-        "3xl": "1.5rem",
-      },
-      backgroundImage: {
-        "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
-        "gradient-lanca": "linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)",
-        "gradient-yellow": "linear-gradient(135deg, #F5C518 0%, #D4A514 100%)",
-        "gradient-gold": "linear-gradient(135deg, #FCD34D 0%, #F5C518 50%, #D4A514 100%)",
-        "gradient-subtle": "linear-gradient(180deg, rgba(245, 197, 24, 0.03) 0%, transparent 100%)",
-        "gradient-warm": "linear-gradient(180deg, #FAF8F5 0%, #FFFFFF 100%)",
-        "gradient-card": "linear-gradient(135deg, #FFFFFF 0%, #FAF8F5 100%)",
       },
       boxShadow: {
-        "soft": "0 2px 8px -2px rgba(0, 0, 0, 0.05), 0 4px 16px -4px rgba(0, 0, 0, 0.08)",
-        "medium": "0 4px 12px -2px rgba(0, 0, 0, 0.06), 0 8px 24px -4px rgba(0, 0, 0, 0.1)",
-        "elevated": "0 8px 24px -4px rgba(0, 0, 0, 0.08), 0 16px 48px -8px rgba(0, 0, 0, 0.12)",
-        "glow-yellow": "0 0 24px -4px rgba(245, 197, 24, 0.35)",
-        "glow-yellow-sm": "0 0 12px -2px rgba(245, 197, 24, 0.25)",
-        "inner-soft": "inset 0 2px 4px 0 rgba(0, 0, 0, 0.02)",
+        "soft": "0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06)",
+        "medium": "0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -1px rgba(0, 0, 0, 0.04)",
+        "elevated": "0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04)",
+        "gold": "0 4px 14px -3px rgba(245, 197, 24, 0.25)",
+        "gold-sm": "0 2px 8px -2px rgba(245, 197, 24, 0.2)",
       },
       animation: {
-        "fade-in": "fadeIn 0.5s ease-out",
-        "slide-up": "slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1)",
-        "slide-down": "slideDown 0.5s cubic-bezier(0.16, 1, 0.3, 1)",
-        "scale-in": "scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
-        "bounce-subtle": "bounceSubtle 2s ease-in-out infinite",
+        "fade-in": "fadeIn 0.4s ease-out",
+        "slide-up": "slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+        "slide-down": "slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+        "scale-in": "scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+        "spin-slow": "spin 3s linear infinite",
       },
       keyframes: {
         fadeIn: {
@@ -104,33 +95,22 @@ export default {
           "100%": { opacity: "1" },
         },
         slideUp: {
-          "0%": { transform: "translateY(16px)", opacity: "0" },
+          "0%": { transform: "translateY(12px)", opacity: "0" },
           "100%": { transform: "translateY(0)", opacity: "1" },
         },
         slideDown: {
-          "0%": { transform: "translateY(-16px)", opacity: "0" },
+          "0%": { transform: "translateY(-12px)", opacity: "0" },
           "100%": { transform: "translateY(0)", opacity: "1" },
         },
         scaleIn: {
           "0%": { transform: "scale(0.96)", opacity: "0" },
           "100%": { transform: "scale(1)", opacity: "1" },
         },
-        bounceSubtle: {
-          "0%, 100%": { transform: "translateY(0)" },
-          "50%": { transform: "translateY(-4px)" },
-        },
-      },
-      spacing: {
-        "18": "4.5rem",
-        "22": "5.5rem",
-      },
-      fontSize: {
-        "2xs": ["0.625rem", { lineHeight: "0.875rem" }],
       },
       transitionTimingFunction: {
         "out-expo": "cubic-bezier(0.16, 1, 0.3, 1)",
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [tailwindAnimate],
 } satisfies Config;

@@ -82,41 +82,41 @@ async def select_queries(city: str, country: str, tier: int) -> tuple[List[str],
     """
     Selects 4-6 optimized queries based on 5 strategic axes.
     """
-    # Eixo 1 - Qualidade técnica (Sartorial)
+    # Eixo 1 - Qualidade técnica (Tailored, mid-to-high range)
     eixo1 = [
-        f"{city} full canvas suits bespoke tailor atelier",
+        f"{city} men's suits tailored fit shop under £1700",
         f"{city} half canvas made-to-measure menswear boutique",
-        f"{city} sartorial menswear suits working buttonholes pick stitching",
-        f"{city} Savile Row style suits bespoke tailor"
+        f"{city} sartorial menswear suits slim fit tailored",
+        f"{city} independent menswear brands tailored suits slim fit"
     ]
     
-    # Eixo 2 - Tecidos Premium
+    # Eixo 2 - Tecidos Premium (mid-high range)
     eixo2 = [
-        f"{city} Loro Piana suits made-to-measure store",
-        f"{city} Scabal Dormeuil Holland Sherry fabric suits atelier",
-        f"{city} Vitale Barberis Canonico Cerruti suits tailor boutique"
+        f"{city} Vitale Barberis Canonico Cerruti suits tailor boutique",
+        f"{city} quality wool suits menswear store mid range",
+        f"{city} suit shop ready to wear tailoring own label collection jackets trousers"
     ]
     
     # Eixo 3 - Canal B2B e Private Label
     eixo3 = [
         f"{city} private label suits menswear wholesale",
         f"{city} white label menswear manufacturer partner boutique",
-        f"{city} trunk show menswear suits brand partnership"
+        f"{city} own label collection suits menswear store"
     ]
     
     # Eixo 4 - Cerimónia e Ocasião
     eixo4 = [
-        f"{city} luxury wedding suits formalwear boutique",
-        f"{city} black tie eveningwear bespoke suits store",
-        f"{city} morning suit hire bespoke ceremonial tailor"
+        f"{city} wedding suits formalwear boutique affordable",
+        f"{city} formal menswear trousers waistcoats wedding suits",
+        f"{city} menswear store suits waistcoats trousers smart casual"
     ]
     
-    # Editorial Axis (from Requirement 5)
+    # Editorial Axis (mid-high range focus)
     eixo_editorial = [
-        f"best bespoke tailors in {city}",
+        f"best tailored suits shop in {city}",
         f"top menswear boutiques in {city}",
-        f"best custom suits in {city}",
-        f"best tailoring houses in {city}"
+        f"best men's suits in {city} mid range",
+        f"men's tailored suits {city} mid range affordable"
     ]
 
     # Dynamically generate local language query (Axis 5)
@@ -126,21 +126,21 @@ async def select_queries(city: str, country: str, tier: int) -> tuple[List[str],
     origins = []
     
     if tier == 1:
-        # Tier 1: ~10 queries
-        selected_queries.extend(random.sample(eixo1, 2))
-        origins.extend(["Axis 1 (Sartorial)"] * 2)
+        # Tier 1: ~14 queries (maximized for coverage)
+        selected_queries.extend(random.sample(eixo1, 3))
+        origins.extend(["Axis 1 (Sartorial)"] * 3)
         
-        selected_queries.extend(random.sample(eixo2, 2))
-        origins.extend(["Axis 2 (Fabrics)"] * 2)
+        selected_queries.extend(eixo2)  # All 3
+        origins.extend(["Axis 2 (Fabrics)"] * len(eixo2))
         
         selected_queries.extend(random.sample(eixo3, 2))
         origins.extend(["Axis 3 (B2B/Label)"] * 2)
         
-        selected_queries.append(random.choice(eixo4))
-        origins.append("Axis 4 (Wedding)")
+        selected_queries.extend(eixo4)  # All 3
+        origins.extend(["Axis 4 (Wedding)"] * len(eixo4))
         
-        selected_queries.extend(random.sample(eixo_editorial, 2))
-        origins.extend(["Axis Editorial"] * 2)
+        selected_queries.extend(random.sample(eixo_editorial, 3))
+        origins.extend(["Axis Editorial"] * 3)
         
         selected_queries.append(axis5_query)
         origins.append("Axis 5 (Local)")
@@ -173,16 +173,17 @@ async def generate_local_query(city: str, country: str) -> str:
     """Uses LLM to generate a local language search query for the city."""
     llm = get_llm()
     prompt = f"""
-    Create a single high-end search query in the local language of {city}, {country} to find luxury bespoke tailors or independent menswear boutiques.
-    Example for Milan: "Milano sarto su misura abiti uomo lusso"
-    Example for Paris: "Paris tailleur sur mesure costume homme luxe atelier"
+    Create a single search query in the local language of {city}, {country} to find mid-to-high range tailored menswear shops or independent suit boutiques (price range €500-€1700).
+    Focus on tailored suits, trousers, jackets and waistcoats — NOT ultra-luxury or bespoke ateliers.
+    Example for Milan: "Milano negozio abiti uomo su misura vestiti eleganti"
+    Example for Paris: "Paris costume homme tailleur boutique prêt-à-porter"
     Return ONLY the query string.
     """
     try:
         response = await llm.ainvoke(prompt)
         return response.content.strip().strip('"')
     except:
-        return f"{city} luxury bespoke tailor menswear"
+        return f"{city} tailored suits menswear shop mid range"
 
 def generate_queries_from_clients(target_city: str) -> List[str]:
 
@@ -193,10 +194,10 @@ def generate_queries_from_clients(target_city: str) -> List[str]:
     These templates are proven effective patterns based on Lança's ideal client profile.
     """
     queries = [
-        f"{target_city} luxury menswear boutique premium suits",
-        f"{target_city} bespoke tailor custom suits high end",
-        f"{target_city} designer men suits store independent",
-        f"{target_city} sastreria a medida fatos de cerimónia wedding suits store",
+        f"{target_city} menswear boutique tailored suits mid range",
+        f"{target_city} tailored fit suits shop affordable premium",
+        f"{target_city} men's suits store independent own label",
+        f"{target_city} fatos de cerimónia wedding suits store",
     ]
 
     print(f"[QUERY-AGENT] Using optimized queries for {target_city} (4 queries)")

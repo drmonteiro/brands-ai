@@ -26,6 +26,58 @@ def get_contact_email(brand: BrandLead) -> str:
         return "info@example.com"
 
 
+async def generate_personalized_outreach(brand: BrandLead) -> str:
+    """
+    Generate a highly personalized outreach email using LLM.
+    Refers to the brand's specific price point and positioning.
+    """
+    from agents.nodes.utils import get_llm
+    
+    # We use the deep model for outreach generation to ensure high quality
+    llm = get_llm(fast=False, temperature=1.0)
+    
+    # Build context for personalization
+    recipient = brand.contact_name or "Director / Founder"
+    brand_price = f"${brand.average_suit_price_usd:.0f}" if brand.average_suit_price_usd else "Premium"
+    style = brand.brand_style or "Premium Menswear"
+    city = brand.city or "your city"
+    
+    prompt = f"""
+    Write a highly professional B2B partnership proposal email from Confeções Lança (Portuguese quality menswear manufacturer) to {brand.name}.
+    
+    CONTEXT ABOUT THE TARGET BRAND:
+    - Name: {brand.name}
+    - Location: {city}
+    - Segment: {style}
+    - Price Point: {brand_price} (Retail price for suits)
+    - Decision Maker: {recipient}
+    
+    ABOUT CONFEÇÕES LANÇA:
+    - Specialization: Quality tailored suits, trousers, waistcoats, overcoats, and formalwear.
+    - Legacy: Since 1973 (50+ years of expertise).
+    - Origin: Covilhã, Portugal (Historical textile hub).
+    - Clients: Manufacturing for well-known mid-to-high range menswear brands and independent boutiques across Europe.
+    - Advantage: Mix of high-tech production (laser cutting) with hand-finishing flexibility (sartorial models).
+    - Own Label: Capable of producing own label collections for retail partners.
+    
+    THE EMAIL SHOULD:
+    1. Be concise (max 180 words).
+    2. Start by acknowledging {brand.name}'s specific positioning in {city}.
+    3. Suggest that their price point of {brand_price} is a perfect fit for Lança's quality manufacturing.
+    4. Propose a short 15-minute introductory call.
+    5. Avoid sounding desperate; focus on European craftsmanship and reliable partnership.
+    6. Mention that {brand.name} was selected specifically by our AI-driven market analysis as a "top fit" brand.
+    
+    Return ONLY the email body in English. No subject line.
+    """
+    
+    try:
+        response = await llm.ainvoke(prompt)
+        return response.content.strip()
+    except Exception as e:
+        print(f"[EMAIL-AI] Could not generate personalized draft: {e}")
+        return generate_email_text(brand)
+
 def generate_email_text(brand: BrandLead) -> str:
     """Generate plain text version of email"""
     return f"""
@@ -59,8 +111,18 @@ Confeções Lança • Established 1973 • Excellence in Portuguese Manufacturi
     """.strip()
 
 
-def generate_email_html(brand: BrandLead) -> str:
+def generate_email_html(brand: BrandLead, ai_draft: str = "") -> str:
     """Generate HTML email content for INTERNAL ALERT"""
+    draft_html = ""
+    if ai_draft:
+        draft_html = f"""
+        <div style="background-color: #fffbeb; padding: 20px; border: 1px border #fcd34d; border-radius: 8px; margin: 20px 0;">
+            <h3 style="margin-top:0; color: #92400e;">📝 Rascunho de Proposta (IA)</h3>
+            <p style="font-style: italic; color: #b45309; font-size: 13px; margin-bottom: 15px;">Este rascunho foi personalizado com base no posicionamento da {brand.name}.</p>
+            <div style="white-space: pre-wrap; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #451a03; background: white; padding: 15px; border-radius: 4px;">{ai_draft}</div>
+        </div>
+        """
+
     return f"""
 <!DOCTYPE html>
 <html>
@@ -87,6 +149,8 @@ def generate_email_html(brand: BrandLead) -> str:
       <p>Olá Daniel e Carla,</p>
       <p>Existe uma excelente oportunidade de negócio com o cliente <strong>{brand.name}</strong>.</p>
       
+      {draft_html}
+
       <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
         <h3 style="margin-top:0;">{brand.name}</h3>
         <p><a href="{brand.website_url}" target="_blank">{brand.website_url}</a></p>
@@ -136,20 +200,18 @@ async def send_partnership_email(brand: BrandLead) -> dict:
     try:
         init_resend()
         
-        print(f"[EMAIL] Sending partnership email to: {brand.name}")
-        print(f"[EMAIL] Website: {brand.website_url}")
-        print(f"[EMAIL] Store count: {brand.store_count}")
-        print(f"[EMAIL] Avg price: ${brand.average_suit_price_usd:.0f}")
+        print(f"[EMAIL] Generating AI draft and sending email to interior: {brand.name}")
         
-        contact_email = get_contact_email(brand)
+        # [V3] Generate personalized AI draft
+        ai_draft = await generate_personalized_outreach(brand)
         
         params = {
             "from": Config.FROM_EMAIL,
             "to": ["d.rmonteiro@hotmail.com", "carla.gaudencio@confeccoeslanca.com"],
             "reply_to": "d.rmonteiro@hotmail.com",
-            "subject": f"Novo Potencial Cliente: {brand.name}",
-            "html": generate_email_html(brand),
-            "text": f"Novo cliente detetado: {brand.name}\nWebsite: {brand.website_url}\nCidade: {brand.city}",
+            "subject": f"🔥 Oportunidade: {brand.name} ({brand.city})",
+            "html": generate_email_html(brand, ai_draft),
+            "text": f"Nova oportunidade: {brand.name}\n\nPROPOSTA IA:\n{ai_draft}",
         }
         
         result = resend.Emails.send(params)

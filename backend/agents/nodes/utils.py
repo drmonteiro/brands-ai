@@ -1,21 +1,37 @@
 """
 Utility functions for LangGraph nodes.
 """
-from typing import List
+from typing import List, Optional
 import re
 from urllib.parse import urlparse
 from langchain_openai import AzureChatOpenAI
 from tavily import TavilyClient
 from config import Config
 
-def get_llm() -> AzureChatOpenAI:
-    """Get Azure OpenAI LLM instance"""
+def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
+    """
+    Get Azure OpenAI LLM instance.
+    
+    Args:
+        fast: If True, use the fast/cheap model (GPT-5.1-codex-mini) for triage.
+              If False, use the deep model (GPT-5.1) for final analysis.
+        temperature: Sampling temperature (lower = more deterministic)
+    
+    Returns:
+        AzureChatOpenAI instance configured for the selected model tier.
+    """
+    deployment = Config.AZURE_OPENAI_DEPLOYMENT_FAST if fast else Config.AZURE_OPENAI_DEPLOYMENT
+    
+    # NEW: Newer Azure models (like gpt-5-mini) require temperature=1.0 
+    # and fail if 0.0 is provided. We force 1.0 to avoid the "Error 400"
+    safe_temperature = 1.0 if "mini" in deployment or "gpt-5" in deployment else temperature
+    
     return AzureChatOpenAI(
         azure_endpoint=Config.AZURE_OPENAI_ENDPOINT,
         api_key=Config.AZURE_OPENAI_API_KEY,
         api_version=Config.AZURE_OPENAI_API_VERSION,
-        deployment_name=Config.AZURE_OPENAI_DEPLOYMENT,
-        temperature=0.3,
+        deployment_name=deployment,
+        temperature=safe_temperature,
     )
 
 def get_tavily_client() -> TavilyClient:
