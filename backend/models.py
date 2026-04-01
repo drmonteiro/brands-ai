@@ -2,8 +2,9 @@
 Pydantic models for the Confeções Lança prospector
 """
 
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List, Dict
+import json
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from typing import Optional, List, Dict, Any
 from enum import Enum
 
 
@@ -157,6 +158,7 @@ class BrandLead(BaseModel):
     """Schema for a discovered brand lead"""
     model_config = ConfigDict(populate_by_name=True)
 
+    id: Optional[str] = None
     name: str
     website_url: str = Field(alias="websiteUrl")
     store_count: int = Field(ge=0, default=1, alias="storeCount")
@@ -164,7 +166,7 @@ class BrandLead(BaseModel):
     city: Optional[str] = None
     origin_country: str = Field(default="USA", alias="originCountry")
     verified: bool = False
-    verification_log: List[str] = Field(default_factory=list, alias="verificationLog")
+    verification_log: Optional[List[str]] = Field(default_factory=list, alias="verificationLog")
     # [V2.7] New scoring and origin fields
     quality_score: int = Field(default=0, alias="qualityScore")
     query_origin: Optional[str] = Field(None, alias="queryOrigin")
@@ -179,7 +181,7 @@ class BrandLead(BaseModel):
     
     # Extended company information
     revenue: Optional[str] = None
-    clothing_types: List[str] = Field(default_factory=list, alias="clothingTypes")
+    clothing_types: Optional[List[str]] = Field(default_factory=list, alias="clothingTypes")
     target_gender: Optional[str] = Field(None, alias="targetGender")
     brand_style: Optional[str] = Field(None, alias="brandStyle")
     business_model: Optional[str] = Field(None, alias="businessModel")
@@ -192,7 +194,7 @@ class BrandLead(BaseModel):
     # Score: 0-10 based on street tier
     
     # [V2.5] New fields for utility
-    store_locations: List[str] = Field(default_factory=list, alias="storeLocations")
+    store_locations: Optional[List[str]] = Field(default_factory=list, alias="storeLocations")
     detailed_description: Optional[str] = Field(None, alias="detailedDescription")
     
     # [V2.6] Contact Information
@@ -204,6 +206,20 @@ class BrandLead(BaseModel):
     # Compatibility field for DB/Frontend mismatch
     avg_suit_price_eur: Optional[float] = Field(default=None)
     fit_score: int = Field(default=0, alias="fitScore")
+    material_composition: Optional[List[str]] = Field(default_factory=list, alias="materialComposition")
+
+    @field_validator('verification_log', 'clothing_types', 'store_locations', 'material_composition', mode='before')
+    @classmethod
+    def parse_json_fields(cls, v):
+        if isinstance(v, str):
+            try:
+                # Try to parse as JSON if it's a string
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except:
+                pass
+        return v
 
     @property
     def price_display(self) -> str:
@@ -213,9 +229,9 @@ class BrandLead(BaseModel):
 
     def model_post_init(self, __context):
         # Ensure we have a price for the logic
-        if self.average_suit_price_usd == 0 and self.avg_suit_price_eur:
+        if (self.average_suit_price_usd == 0 or self.average_suit_price_usd is None) and self.avg_suit_price_eur is not None:
             self.average_suit_price_usd = self.avg_suit_price_eur * 1.08  # Approx conversion
-        if self.avg_suit_price_eur is None and self.average_suit_price_usd > 0:
+        if self.avg_suit_price_eur is None and self.average_suit_price_usd is not None and self.average_suit_price_usd > 0:
             self.avg_suit_price_eur = self.average_suit_price_usd / 1.08
 
 
@@ -274,7 +290,7 @@ class ApprovalRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     
     brand_name: str = Field(alias="brandName")
-    brand_data: BrandLead = Field(alias="brandData")
+    brand_data: Dict[str, Any] = Field(alias="brandData")
 
 
 class ProgressMessage(BaseModel):

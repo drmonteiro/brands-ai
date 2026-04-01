@@ -1,41 +1,45 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    /* Confeções Lança Brand System */
-    --background: 40 33% 98%;       /* Warm cream white */
-    --foreground: 0 0% 10%;          /* Near black */
-    
+    /* Confeções Lança Brand System — Professional */
+    --background: 0 0% 97%;
+    --foreground: 0 0% 8%;
+
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 10%;
-    
-    --primary: 43 91% 53%;           /* Lança Gold #F5C518 */
-    --primary-foreground: 0 0% 10%;
-    
-    --secondary: 40 20% 95%;         /* Warm light */
-    --secondary-foreground: 0 0% 15%;
-    
-    --muted: 40 15% 95%;
-    --muted-foreground: 0 0% 45%;
-    
-    --accent: 43 91% 95%;            /* Light gold tint */
-    --accent-foreground: 43 91% 35%;
-    
+    --card-foreground: 0 0% 8%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 8%;
+
+    --primary: 43 91% 48%;
+    --primary-foreground: 0 0% 8%;
+
+    --secondary: 0 0% 95%;
+    --secondary-foreground: 0 0% 18%;
+
+    --muted: 0 0% 95%;
+    --muted-foreground: 0 0% 48%;
+
+    --accent: 43 85% 95%;
+    --accent-foreground: 43 91% 30%;
+
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    
-    --border: 40 15% 91%;
-    --input: 40 15% 91%;
-    --ring: 43 91% 53%;
-    
-    --radius: 0.75rem;
-    
-    /* Brand-specific */
-    --gold: 43 91% 53%;
-    --gold-light: 43 91% 93%;
-    --charcoal: 0 0% 15%;
+
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 43 91% 48%;
+
+    --radius: 0.5rem;
+
+    --gold: 43 91% 48%;
+    --gold-light: 43 91% 95%;
+    --charcoal: 0 0% 12%;
   }
 }
 
@@ -43,39 +47,38 @@
   * {
     @apply border-border;
   }
-  
+
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
     font-feature-settings: "ss01", "cv01";
+    letter-spacing: -0.01em;
   }
 
   h1, h2, h3, h4, h5, h6 {
     @apply tracking-tight font-semibold;
+    letter-spacing: -0.02em;
   }
 }
 
 @layer utilities {
-  /* Warm card with subtle gold accent */
   .card-lanca {
-    @apply bg-white rounded-xl border border-border shadow-soft;
-    transition: box-shadow 0.3s ease, transform 0.3s ease;
+    @apply bg-white rounded-lg border border-border;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
   }
   .card-lanca:hover {
-    @apply shadow-medium;
-    transform: translateY(-2px);
-  }
-  
-  /* Gold accent bar */
-  .gold-accent {
-    @apply bg-gradient-to-r from-lanca-yellow to-lanca-yellowDark;
-  }
-  
-  /* Subtle warm overlay */
-  .warm-overlay {
-    background: linear-gradient(180deg, rgba(245, 197, 24, 0.02) 0%, transparent 100%);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
   }
 
-  /* Status badge styles */
+  .gold-accent {
+    background: hsl(var(--gold));
+  }
+
+  .section-label {
+    @apply text-[10px] font-semibold uppercase tracking-widest text-muted-foreground;
+  }
+
   .status-high {
     @apply bg-emerald-50 text-emerald-700 border border-emerald-200;
   }
@@ -87,37 +90,30 @@
   }
 }
 
-/* Smooth entrance animation */
 .smooth-entry {
-  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: fadeSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes fadeIn {
   from { opacity: 0; }
-  to { opacity: 1; }
+  to   { opacity: 1; }
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: hsl(var(--border));
-  border-radius: 3px;
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground));
 }
 
-/* Focus styles */
 *:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;

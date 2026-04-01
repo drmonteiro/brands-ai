@@ -352,7 +352,7 @@ export default function ClientsPage() {
                     <h3 className="text-xl font-semibold text-foreground mb-2">Excelência desde 1973</h3>
                     <p className="text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
                         Estes parceiros representam o padrão de qualidade da Confeções Lança. 
-                        A nossa plataforma de prospeção por IA replica este rigor na descoberta de novos mercados globais.
+                        A nossa plataforma de pesquisa por IA replica este rigor na descoberta de novos mercados globais.
                     </p>
                 </div>
             </main>

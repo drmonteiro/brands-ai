@@ -727,6 +727,21 @@ async def delete_prospect(prospect_id: str):
     pool = await PostgresManager.get_pool()
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM prospects WHERE id = $1", prospect_id)
+        return True
+
+async def delete_city_prospects(city: str):
+    """
+    Delete all prospects for a giving city.
+    """
+    pool = await PostgresManager.get_pool()
+    async with pool.acquire() as conn:
+        # Case insensitive match on city
+        result = await conn.execute("DELETE FROM prospects WHERE lower(city) = lower($1)", city)
+        # result typically looks like "DELETE 5"
+        try:
+            return int(result.split()[-1]) > 0
+        except:
+            return True
 
 
 # ============================================================================

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { AppProviders } from "@/components/AppProviders";
+import { Toaster } from "sonner";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -19,7 +20,7 @@ const playfair = Playfair_Display({
 
 export const metadata: Metadata = {
   title: "Confeções Lança | Plataforma Comercial",
-  description: "Plataforma de prospeção e gestão comercial da Confeções Lança. Desde 1973.",
+  description: "Plataforma de pesquisa e gestão comercial da Confeções Lança. Desde 1973.",
   icons: {
     icon: "/lanca-logo.png",
   },
@@ -42,6 +43,13 @@ export default function RootLayout({
               {children}
             </main>
           </div>
+          <Toaster
+            position="bottom-right"
+            richColors
+            toastOptions={{
+              style: { borderRadius: '6px', fontSize: '13px' },
+            }}
+          />
         </AppProviders>
       </body>
     </html>

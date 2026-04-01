@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
+import { toast } from "sonner";
 import { BrandLead, parseJsonArray } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +33,9 @@ interface BrandCardProps {
 }
 
 export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
+  const { data: session } = useSession();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [currentStatus, setCurrentStatus] = useState(brand.status || "new");
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [feedbackState, setFeedbackState] = useState<{
     showModal: boolean;
@@ -54,7 +58,7 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
         body: JSON.stringify({
           feedback_type: feedbackState.type,
           comment,
-          manager_name: "Comercial", // Could be dynamic if we had auth
+          manager_name: session?.user?.name || "Comercial", // Dynamic from NextAuth
         }),
       });
 
@@ -74,10 +78,33 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
       const success = await onSendEmail(brand.name, brand);
       if (success) {
         setEmailStatus("sent");
+        if (currentStatus === "new") {
+          setCurrentStatus("contacted");
+        }
         return;
       }
     }
     setEmailStatus("idle");
+  };
+
+  const handleStatusChange = async (newStatus: string) => {
+    const previousStatus = currentStatus;
+    setCurrentStatus(newStatus);
+    
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/api/prospects/${brand.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      
+      if (!response.ok) throw new Error("Failed to update status");
+      toast.success(`Estado atualizado para ${newStatus}`);
+    } catch (error) {
+      setCurrentStatus(previousStatus);
+      toast.error("Erro ao atualizar estado da marca");
+    }
   };
 
   // Support both snake_case (API) and camelCase (legacy) field names
@@ -142,7 +169,7 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
                 {brand.name}
               </h3>
               {brand.verified && (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" title="Verificado pela IA" />
               )}
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -151,9 +178,16 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <Badge className={`${fitColor} text-xs font-medium rounded-md px-2.5 py-1 shadow-sm`}>
-              Fit {fitLabel}
-            </Badge>
+            <select 
+              value={currentStatus}
+              onChange={(e) => handleStatusChange(e.target.value)}
+              className="text-xs font-medium rounded-md px-2 py-1 bg-muted border border-border outline-none text-foreground focus:ring-2 focus:ring-lanca-yellow"
+            >
+              <option value="new">Novo</option>
+              <option value="contacted">Contactado</option>
+              <option value="converted">Convertido</option>
+              <option value="rejected">Rejeitado</option>
+            </select>
             
             {/* Feedback Mini-buttons */}
             <div className="flex gap-1">

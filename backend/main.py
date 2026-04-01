@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from services.database import init_database
 from services.postgres import PostgresManager
-from routers import prospects, cities, analytics, workflow, email
+from routers import prospects, cities, analytics, workflow, email, export
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -29,7 +29,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://ambitious-coast-0f9176703.1.azurestaticapps.net"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,6 +44,7 @@ app.include_router(prospects.router)
 app.include_router(cities.router)
 app.include_router(analytics.router)
 app.include_router(email.router)
+app.include_router(export.router)
 
 @app.get("/")
 async def root():
