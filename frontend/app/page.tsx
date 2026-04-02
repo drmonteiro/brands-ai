@@ -57,11 +57,20 @@ export default function Home() {
             if (part.startsWith('data: ')) {
               try {
                 const data = JSON.parse(part.substring(6));
+                
+                // If backend throws an error, gracefully abort and throw
+                if (data.type === 'error') {
+                  throw new Error(data.message || "Erro no servidor.");
+                }
+                
                 if (data.message) {
                   setProgressMessages(prev => [...prev.slice(-3), data.message]);
                 }
-              } catch (e) {
-                // ignore parse errors
+              } catch (e: any) {
+                // If it's the error we threw above, propagate it up to stop the loop
+                if (e.message && !e.message.includes('JSON')) {
+                  throw e;
+                }
               }
             }
           }
@@ -72,7 +81,8 @@ export default function Home() {
       setSearchComplete(true);
       toast.success(`Pesquisa concluída! Resultados para ${city.trim()} guardados.`);
     } catch (error: any) {
-      toast.error("Erro ao pesquisar: " + error.message);
+      console.error(error);
+      toast.error(error.message || "Ocorreu um erro na pesquisa.");
     } finally {
       setIsSearching(false);
     }
