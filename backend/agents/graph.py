@@ -75,8 +75,9 @@ async def get_graph_pool():
         }
         _graph_pool = AsyncConnectionPool(
             conninfo=DB_URI, 
-            max_size=10, 
+            max_size=25, 
             min_size=1,
+            timeout=60.0,
             kwargs=connection_kwargs,
             open=True
         )
