@@ -23,8 +23,7 @@ beautifulsoup4
 
 # Database (PostgreSQL)
 asyncpg
-psycopg2-binary
-psycopg[pool]
+psycopg[binary,pool]
 sqlalchemy[asyncio]
 pgvector
 langgraph-checkpoint-postgres

@@ -75,12 +75,14 @@ async def get_graph_pool():
         }
         _graph_pool = AsyncConnectionPool(
             conninfo=DB_URI, 
-            max_size=25, 
+            max_size=10, 
             min_size=1,
-            timeout=60.0,
+            timeout=120.0,
+            reconnect_timeout=300.0,
             kwargs=connection_kwargs,
-            open=True
+            open=False  # Don't try to connect immediately (Neon cold-start)
         )
+        await _graph_pool.open(wait=True, timeout=120.0)
     return _graph_pool
 
 @contextlib.asynccontextmanager
