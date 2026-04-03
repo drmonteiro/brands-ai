@@ -3,11 +3,13 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import {
     Search,
     Archive,
     Users,
     Settings,
+    LogOut,
 } from "lucide-react";
 
 const menuItems = [
@@ -73,7 +75,7 @@ export function Sidebar() {
             </nav>
 
             {/* Bottom */}
-            <div className="px-3 py-4 border-t border-white/[0.06]">
+            <div className="px-3 py-4 border-t border-white/[0.06] flex flex-col gap-1">
                 <Link
                     href="#"
                     className="flex items-center gap-3 px-3 py-2.5 rounded-md text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-all duration-150"
@@ -81,6 +83,13 @@ export function Sidebar() {
                     <Settings className="h-[17px] w-[17px] flex-shrink-0" />
                     <span className="hidden lg:block text-[13px]">Definições</span>
                 </Link>
+                <button
+                    onClick={() => signOut({ callbackUrl: '/' })}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-md text-red-500/50 hover:text-red-500 hover:bg-red-500/10 transition-all duration-150"
+                >
+                    <LogOut className="h-[17px] w-[17px] flex-shrink-0" />
+                    <span className="hidden lg:block text-[13px]">Terminar Sessão</span>
+                </button>
             </div>
         </aside>
     );
