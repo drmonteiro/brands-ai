@@ -375,8 +375,18 @@ async def validation_node(
             new_progress.append(f"🛡️ {excluded_chains} cadeias conhecidas excluídas automaticamente")
 
         new_progress.append(
-            f"\n🚜 HARVEST: Processando {len(candidate_urls)} URLs únicos..."
+            f"\n🚜 HARVEST: {len(candidate_urls)} URLs únicos encontrados..."
         )
+
+        # Cap candidates to avoid timeout on large cities (Azure SSE ~4min limit)
+        MAX_CANDIDATES = 80
+        if len(candidate_urls) > MAX_CANDIDATES:
+            import random as _random
+            _random.shuffle(candidate_urls)
+            candidate_urls = candidate_urls[:MAX_CANDIDATES]
+            new_progress.append(
+                f"   ⚡ Limitado a {MAX_CANDIDATES} candidatos para otimizar tempo"
+            )
 
         # ================================================================
         # PHASE 0b: SCRAPE + MULTI-LANGUAGE KEYWORD SCORING
@@ -413,12 +423,23 @@ async def validation_node(
         )
         enriched_contents = await enrich_content_with_prices(scored_contents)
 
-        # ================================================================
-        # PHASE 0c: DATA-DRIVEN PRE-FILTER (Price + Similarity + Appointment-Only)
-        # ================================================================
+        # Quick vector similarity check — parallel with semaphore to avoid overload
+        embed_semaphore = asyncio.Semaphore(5)
+        
+        async def compute_similarity(content):
+            async with embed_semaphore:
+                try:
+                    similar = await find_similar_clients(content.content[:4000], n_results=1)
+                    return similar[0]["similarity"] if similar else 0
+                except Exception:
+                    return 0
+        
+        similarity_tasks = [compute_similarity(c) for c in enriched_contents]
+        similarity_scores = await asyncio.gather(*similarity_tasks)
+        
         pre_filtered = []
         appointment_only_count = 0
-        for content in enriched_contents:
+        for idx, content in enumerate(enriched_contents):
             # Appointment-only detection (FREE — no API call)
             if is_appointment_only(content.content):
                 appointment_only_count += 1
@@ -428,17 +449,11 @@ async def validation_node(
             price_eur = price_info.get("avg_price", 0)
             price_confidence = price_info.get("confidence", 0)
             
-            # Hard filter: if price is confirmed AND below €250 (min trouser price), skip
-            if price_confidence > 0.5 and 0 < price_eur < 250:
+            # Hard filter: if price is confirmed with HIGH confidence AND below €250, skip
+            if price_confidence > 0.75 and 0 < price_eur < 250:
                 continue
 
-            # Quick vector similarity check
-            similar_clients = await find_similar_clients(
-                content.content[:4000], n_results=1
-            )
-            similarity_score = (
-                similar_clients[0]["similarity"] if similar_clients else 0
-            )
+            similarity_score = similarity_scores[idx]
 
             # Only skip if BOTH similarity is very low AND we have no price signal
             if similarity_score < 40 and price_eur == 0 and content.quality_score < 3:
@@ -519,7 +534,7 @@ async def validation_node(
             
             # Penalize brands without visible prices
             if not prices_visible:
-                score -= 2  # Reduce score by 2 if no visible prices
+                score -= 1  # Soft penalty — premium boutiques often hide prices
                 no_price_penalized_count += 1
                 
             if score >= 5 and result.get("is_menswear", True):

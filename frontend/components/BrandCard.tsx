@@ -112,7 +112,8 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
   const storeCount = brand.store_count ?? brand.storeCount ?? 0;
   const priceEUR = brand.avg_suit_price_eur ?? brand.avgSuitPriceEUR;
   const priceUSD = brand.averageSuitPriceUSD;
-  const city = brand.city || "";
+  const rawCity = brand.city || "";
+  const city = rawCity.charAt(0).toUpperCase() + rawCity.slice(1);
   const country = brand.country || brand.originCountry || "";
   const description = brand.detailed_description || brand.detailedDescription || brand.company_overview || brand.companyOverview || "";
   const fitScore = brand.fit_score ?? brand.fitScore ?? 0;
@@ -165,7 +166,7 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-lg font-semibold text-foreground truncate">
+              <h3 className="text-lg font-semibold text-foreground truncate" title={brand.name}>
                 {brand.name}
               </h3>
               {brand.verified && (
@@ -234,7 +235,7 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
           <div className="bg-muted/50 rounded-lg p-3 text-center">
             <TrendingUp className="h-3.5 w-3.5 text-muted-foreground mx-auto mb-1" />
             <p className="text-xs text-muted-foreground mb-0.5">Score</p>
-            <p className="text-sm font-semibold text-foreground">{finalScore || fitScore}/10</p>
+            <p className="text-sm font-semibold text-foreground">{finalScore || fitScore}/100</p>
           </div>
         </div>
 

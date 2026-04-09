@@ -1,18 +1,96 @@
 """
 Node 1: Search Initializer
 Generates search queries and handles initial setup/cache checking.
+Uses LLM (mini) to generate local-language queries for any city in the world.
 """
 from typing import List, Dict, Any, Union
+import json
 from models import ProspectorState
 from services.database import get_prospects_by_city
-from .utils import get_exchange_rate, convert_eur_to_usd
+from .utils import get_exchange_rate, convert_eur_to_usd, get_llm
 
-import random
-from .utils import get_llm
+
+# ============================================================================
+# ENGLISH-SPEAKING CITIES (skip local query generation for these)
+# ============================================================================
+
+ENGLISH_SPEAKING_COUNTRIES = {"uk", "us", "usa", "australia", "canada", "ireland", "new zealand"}
+ENGLISH_CITIES = {
+    "london", "manchester", "birmingham", "edinburgh", "glasgow", "liverpool",
+    "bristol", "leeds", "sheffield", "nottingham", "cardiff", "belfast",
+    "new york", "los angeles", "chicago", "boston", "san francisco", "miami",
+    "washington", "seattle", "dallas", "houston", "philadelphia", "atlanta",
+    "sydney", "melbourne", "toronto", "vancouver", "dublin",
+}
+
+
+def is_english_city(city: str) -> bool:
+    """Check if a city is in an English-speaking country (no need for local queries)."""
+    return city.lower().strip() in ENGLISH_CITIES
+
+
+async def generate_local_queries(city: str) -> List[str]:
+    """
+    Uses GPT-5.1-mini (~$0.01) to generate 2-3 search queries in the local language
+    of the city. Works for ANY city in the world without hardcoded mappings.
+    
+    Returns empty list for English-speaking cities.
+    """
+    if is_english_city(city):
+        return []
+    
+    llm = get_llm(fast=True, temperature=0.3)  # mini model — cheap and fast
+    
+    prompt = f"""You are a search query generator for a Portuguese suit manufacturer looking for retail partners.
+
+CITY: {city}
+
+TASK: Generate exactly 3 search queries in the LOCAL LANGUAGE of {city} to find independent menswear boutiques that sell tailored suits, trousers, jackets and waistcoats in the mid-to-high price range (€500-€1700).
+
+RULES:
+1. Detect which language is most commonly used for commerce in {city} (e.g., Italian for Milano, French for Paris, German for Berlin, Japanese for Tokyo, etc.)
+2. If {city} is in an English-speaking country, return an empty array []
+3. Write queries that a local person would actually type into Google to find suit shops
+4. Include the city name in each query
+5. Focus on: independent boutiques, tailored suits, mid-range pricing, own brand/label collections
+6. Do NOT target ultra-luxury/bespoke ateliers or fast fashion chains
+
+EXAMPLES:
+- Milano → ["Milano negozio abiti uomo sartoriale classico", "Milano boutique moda uomo indipendente", "Milano sartoria abiti pronti marca propria"]
+- Paris → ["Paris boutique costume homme tailleur prêt-à-porter", "Paris magasin mode masculine indépendant", "Paris costume sur mesure prix moyen"]
+- Berlin → ["Berlin Herrenmode Anzüge maßgeschneidert Boutique", "Berlin Herrenbekleidung Anzug unabhängig", "Berlin Herrenanzug Premium Eigenmarke"]
+
+Return ONLY a JSON array of 3 strings. No explanation."""
+
+    try:
+        response = await llm.ainvoke(prompt)
+        raw = response.content.strip()
+        # Clean markdown fences if the model wraps in ```json
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        
+        queries = json.loads(raw)
+        
+        # Validate: must be a list of strings
+        if isinstance(queries, list) and all(isinstance(q, str) for q in queries):
+            print(f"[INIT] 🌍 Generated {len(queries)} local queries for {city}")
+            for q in queries:
+                print(f"   → {q}")
+            return queries[:3]  # cap at 3
+        
+        return []
+    except Exception as e:
+        print(f"[INIT] ⚠️ Local query generation failed for {city}: {e}")
+        # Fallback: return empty — the English queries will still work
+        return []
+
 
 async def initialize_search(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Initialize search and generate queries using optimized templates based on ideal client profile.
+    Initialize search and generate queries using optimized templates + LLM local queries.
     """
     # Handle both object and dict state
     target_city = state.target_city if hasattr(state, "target_city") else state.get("target_city")
@@ -29,17 +107,13 @@ async def initialize_search(state: Union[ProspectorState, Dict[str, Any]]) -> Di
         elif any(c in city_lower for c in ["madrid", "barcelona"]): target_country = "Spain"
         elif any(c in city_lower for c in ["lisbon", "porto"]): target_country = "Portugal"
     
-    # [V2.7] Tier Detection
-    tier1_cities = ["London", "Paris", "Milan", "New York", "Boston", "Madrid", "Lisbon", "Tokyo", "Hong Kong", "Zurich"]
-    tier = 1 if any(t.lower() in target_city.lower() for t in tier1_cities) else 2
-    
-    print(f"[INIT] Starting intelligent search for: {target_city}, {target_country} (Tier {tier})")
+    print(f"[INIT] Starting intelligent search for: {target_city}, {target_country}")
     
     # 💰 CACHE CHECK
     existing_prospects = await get_prospects_by_city(target_city, limit=100)
     force_refresh = state.get("force_refresh", False) if isinstance(state, dict) else getattr(state, "force_refresh", False)
     
-    if len(existing_prospects) >= 10 and not force_refresh:
+    if len(existing_prospects) >= 25 and not force_refresh:
         return {
             "exchange_rate": await get_exchange_rate(),
             "price_threshold_usd": 0,
@@ -56,13 +130,13 @@ async def initialize_search(state: Union[ProspectorState, Dict[str, Any]]) -> Di
     exchange_rate = await get_exchange_rate()
     price_threshold_usd = convert_eur_to_usd(price_threshold_eur, exchange_rate)
     
-    # [V2.7] DYNAMIC QUERY GENERATION
-    search_queries, query_origins = await select_queries(target_city, target_country, tier)
+    # DYNAMIC QUERY GENERATION
+    search_queries, query_origins = await select_queries(target_city)
     
     new_progress = [
-        f"🚀 Pesquisa iniciada para {target_city} (Tier {tier}). Preço alvo: ${price_threshold_usd:.0f}",
-        "🔍 A gerar queries inteligentes segmentadas por eixos...",
-        f"✅ {len(search_queries)} queries geradas (Mix de qualidade, B2B e local)"
+        f"🚀 Pesquisa iniciada para {target_city}. Preço alvo: ${price_threshold_usd:.0f}",
+        "🔍 A gerar queries inteligentes...",
+        f"✅ {len(search_queries)} queries geradas"
     ]
     
     for idx, (query, origin) in enumerate(zip(search_queries, query_origins)):
@@ -75,142 +149,55 @@ async def initialize_search(state: Union[ProspectorState, Dict[str, Any]]) -> Di
         "query_origins": query_origins,
         "progress": new_progress,
         "search_results": [],
-        "tier": tier
     }
 
-async def select_queries(city: str, country: str, tier: int) -> tuple[List[str], List[str]]:
+async def select_queries(city: str) -> tuple[List[str], List[str]]:
     """
-    Selects 4-6 optimized queries based on 5 strategic axes.
+    Generates 6-9 optimized search queries:
+    - 6 fixed English queries (core axes)
+    - 0-3 local language queries (generated by LLM mini, ~$0.01)
     """
-    # Eixo 1 - Qualidade técnica (Tailored, mid-to-high range)
-    eixo1 = [
-        f"{city} men's suits tailored fit shop under £1700",
-        f"{city} half canvas made-to-measure menswear boutique",
-        f"{city} sartorial menswear suits slim fit tailored",
-        f"{city} independent menswear brands tailored suits slim fit"
-    ]
-    
-    # Eixo 2 - Tecidos Premium (mid-high range)
-    eixo2 = [
-        f"{city} Vitale Barberis Canonico Cerruti suits tailor boutique",
-        f"{city} quality wool suits menswear store mid range",
-        f"{city} suit shop ready to wear tailoring own label collection jackets trousers"
-    ]
-    
-    # Eixo 3 - Canal B2B e Private Label
-    eixo3 = [
-        f"{city} private label suits menswear wholesale",
-        f"{city} white label menswear manufacturer partner boutique",
-        f"{city} own label collection suits menswear store"
-    ]
-    
-    # Eixo 4 - Cerimónia e Ocasião
-    eixo4 = [
-        f"{city} wedding suits formalwear boutique affordable",
-        f"{city} formal menswear trousers waistcoats wedding suits",
-        f"{city} menswear store suits waistcoats trousers smart casual"
-    ]
-    
-    # Editorial Axis (mid-high range focus)
-    eixo_editorial = [
-        f"best tailored suits shop in {city}",
-        f"top menswear boutiques in {city}",
-        f"best men's suits in {city} mid range",
-        f"men's tailored suits {city} mid range affordable"
-    ]
-
-    # Dynamically generate local language query (Axis 5)
-    axis5_query = await generate_local_query(city, country)
-    
     selected_queries = []
     origins = []
     
-    if tier == 1:
-        # Tier 1: ~14 queries (maximized for coverage)
-        selected_queries.extend(random.sample(eixo1, 3))
-        origins.extend(["Axis 1 (Sartorial)"] * 3)
-        
-        selected_queries.extend(eixo2)  # All 3
-        origins.extend(["Axis 2 (Fabrics)"] * len(eixo2))
-        
-        selected_queries.extend(random.sample(eixo3, 2))
-        origins.extend(["Axis 3 (B2B/Label)"] * 2)
-        
-        selected_queries.extend(eixo4)  # All 3
-        origins.extend(["Axis 4 (Wedding)"] * len(eixo4))
-        
-        selected_queries.extend(random.sample(eixo_editorial, 3))
-        origins.extend(["Axis Editorial"] * 3)
-        
-        selected_queries.append(axis5_query)
-        origins.append("Axis 5 (Local)")
-    else:
-        # Tier 2: ~6 queries
-        selected_queries.append(random.choice(eixo1))
-        origins.append("Axis 1 (Sartorial)")
-        
-        selected_queries.append(random.choice(eixo3))
-        origins.append("Axis 3 (B2B/Label)")
-        
-        selected_queries.append(random.choice(eixo4))
-        origins.append("Axis 4 (Wedding)")
-        
-        selected_queries.append(random.choice(eixo_editorial))
-        origins.append("Axis Editorial")
-        
-        selected_queries.append(axis5_query)
-        origins.append("Axis 5 (Local)")
-        
-        # Add one more random from Axis 1 or 2
-        extra = random.choice(eixo1 + eixo2)
-        selected_queries.append(extra)
-        origins.append("Axis Extra")
-
-
+    # === ENGLISH QUERIES (always present) ===
+    
+    # 1. Sartorial — core tailored menswear
+    selected_queries.append(f"{city} independent menswear brands tailored suits shop")
+    origins.append("Sartorial")
+    
+    # 2. RTW / Own Label — ready-to-wear focus
+    selected_queries.append(f"{city} suit shop ready to wear own label collection")
+    origins.append("RTW/Label")
+    
+    # 3. Wedding / Occasion
+    selected_queries.append(f"{city} wedding suits formalwear boutique affordable")
+    origins.append("Wedding")
+    
+    # 4-5. Editorial / Top Lists — most efficient queries
+    selected_queries.append(f"best tailored suits shop in {city}")
+    origins.append("Editorial")
+    selected_queries.append(f"top menswear boutiques in {city}")
+    origins.append("Editorial")
+    
+    # 6. Catch-all
+    selected_queries.append(f"{city} men's suits mid range affordable premium boutique")
+    origins.append("Catch-all")
+    
+    # === LOCAL LANGUAGE QUERIES (LLM mini, ~$0.01) ===
+    local_queries = await generate_local_queries(city)
+    if local_queries:
+        selected_queries.extend(local_queries)
+        origins.extend([f"Local Language"] * len(local_queries))
+    
     return selected_queries, origins
 
-async def generate_local_query(city: str, country: str) -> str:
-    """Uses LLM to generate a local language search query for the city."""
-    llm = get_llm()
-    prompt = f"""
-    Create a single search query in the local language of {city}, {country} to find mid-to-high range tailored menswear shops or independent suit boutiques (price range €500-€1700).
-    Focus on tailored suits, trousers, jackets and waistcoats — NOT ultra-luxury or bespoke ateliers.
-    Example for Milan: "Milano negozio abiti uomo su misura vestiti eleganti"
-    Example for Paris: "Paris costume homme tailleur boutique prêt-à-porter"
-    Return ONLY the query string.
-    """
-    try:
-        response = await llm.ainvoke(prompt)
-        return response.content.strip().strip('"')
-    except:
-        return f"{city} tailored suits menswear shop mid range"
-
-def generate_queries_from_clients(target_city: str) -> List[str]:
-
-    """
-    Generate search queries based on Confeções Lança's ideal client profile.
-    
-    COST OPTIMIZATION: Uses hardcoded query templates instead of LLM call.
-    These templates are proven effective patterns based on Lança's ideal client profile.
-    """
-    queries = [
-        f"{target_city} menswear boutique tailored suits mid range",
-        f"{target_city} tailored fit suits shop affordable premium",
-        f"{target_city} men's suits store independent own label",
-        f"{target_city} fatos de cerimónia wedding suits store",
-    ]
-
-    print(f"[QUERY-AGENT] Using optimized queries for {target_city} (4 queries)")
-    for i, q in enumerate(queries, 1):
-        print(f"   Query {i}: \"{q}\"")
-    
-    return queries
 
 def create_initial_state(city: str) -> ProspectorState:
     """Create initial state for a new prospecting session."""
     return ProspectorState(
         target_city=city,
-        target_country="USA", # Default, ideally derived later
+        target_country="USA", # Default, derived later in initialize_search
         search_queries=[],
         candidate_urls=[],
         potential_brands=[],

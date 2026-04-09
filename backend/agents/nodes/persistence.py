@@ -35,32 +35,37 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
         if norm_url in existing_urls:
             # [V3] Enrichment: even if duplicate, search for contacts if missing
             try:
-                # Get existing from DB or use current state
+                # Extract brand info directly from the brand object (not prospect_dict which isn't defined yet)
+                brand_name = brand.name if hasattr(brand, "name") else brand.get("name", "Unknown")
+                brand_url = brand.website_url if hasattr(brand, "website_url") else brand.get("website_url", url)
+                brand_country = brand.origin_country if hasattr(brand, "origin_country") else brand.get("origin_country", "")
+                
                 existing_contact = {
-                    "contact_name": prospect_dict.get("contact_name"),
-                    "contact_role": prospect_dict.get("contact_role"),
-                    "contact_email": prospect_dict.get("contact_email"),
-                    "contact_phone": prospect_dict.get("contact_phone"),
-                    "contact_linkedin": prospect_dict.get("contact_linkedin"),
+                    "contact_name": getattr(brand, "contact_name", None) if hasattr(brand, "contact_name") else brand.get("contact_name"),
+                    "contact_role": getattr(brand, "contact_role", None) if hasattr(brand, "contact_role") else brand.get("contact_role"),
+                    "contact_email": getattr(brand, "contact_email", None) if hasattr(brand, "contact_email") else brand.get("contact_email"),
+                    "contact_phone": getattr(brand, "contact_phone", None) if hasattr(brand, "contact_phone") else brand.get("contact_phone"),
+                    "contact_linkedin": getattr(brand, "contact_linkedin", None) if hasattr(brand, "contact_linkedin") else brand.get("contact_linkedin"),
                 }
                 
                 # Check if we should find contacts (cascade)
                 contact_result = await find_contacts_for_brand(
-                    brand_name=prospect_dict["name"],
-                    brand_url=prospect_dict["website_url"],
+                    brand_name=brand_name,
+                    brand_url=brand_url,
                     city=target_city,
-                    country=prospect_dict.get("country", ""),
+                    country=brand_country,
                     existing_contact=existing_contact,
                 )
                 
                 # If we found something new, update only the contact info
                 if any(contact_result.get(k) and not existing_contact.get(k) for k in contact_result):
-                    p_id = await get_prospect_id_by_url(prospect_dict["website_url"])
+                    p_id = await get_prospect_id_by_url(brand_url)
                     if p_id:
                         await update_prospect_contact(p_id, contact_result)
-                        new_progress.append(f"   👤 {prospect_dict['name']}: Contactos actualizados")
+                        new_progress.append(f"   👤 {brand_name}: Contactos actualizados")
             except Exception as e:
-                print(f"[PERSISTENCE] Enrichment error for {prospect_dict['name']}: {e}")
+                brand_name_safe = brand.name if hasattr(brand, "name") else brand.get("name", "Unknown")
+                print(f"[PERSISTENCE] Enrichment error for {brand_name_safe}: {e}")
             
             duplicate_count += 1
             continue
@@ -79,7 +84,7 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
             "country": brand_dict.get("originCountry") or brand_dict.get("origin_country"),
             "country_code": "XX", # Placeholder
             "store_count": brand_dict.get("storeCount") or brand_dict.get("store_count", 1),
-            "avg_suit_price_eur": (brand_dict.get("averageSuitPriceUSD") or brand_dict.get("average_suit_price_usd", 0)) / 1.08,
+            "avg_suit_price_eur": float(brand_dict.get("averageSuitPriceUSD") or brand_dict.get("average_suit_price_usd") or 0) / 1.08,
             "brand_style": brand_dict.get("brandStyle") or brand_dict.get("brand_style", "unknown"),
             "business_model": brand_dict.get("businessModel") or brand_dict.get("business_model", "unknown"),
             "description": brand_dict.get("companyOverview") or brand_dict.get("company_overview", ""),

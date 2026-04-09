@@ -136,7 +136,7 @@ export default function SavedCitiesPage() {
                     <div>
                         <h2 className="text-[13px] font-semibold text-foreground tracking-tight">Cidades Guardadas</h2>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
-                            {safeCities.length} cidades · {totalProspectsCount} marcas
+                            {isLoadingCities ? "A carregar..." : `${safeCities.length} cidades · ${totalProspectsCount} marcas`}
                         </p>
                     </div>
                 </div>

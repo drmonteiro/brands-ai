@@ -1,9 +1,11 @@
 """
 Workflow Service
 Manages SSE generators for prospecting workflows.
+Includes heartbeat mechanism to prevent Azure SSE timeout on large cities.
 """
 import json
 import asyncio
+import time
 from datetime import datetime
 from typing import Dict, AsyncGenerator
 from models import BrandLead
@@ -11,8 +13,13 @@ from agents.nodes.initializer import create_initial_state
 from agents.graph import run_prospector_workflow, _get_app_with_postgres
 from services.database import city_has_results, get_prospects_by_city
 
+# Heartbeat interval in seconds — Azure Static Web Apps times out idle SSE after ~240s
+# Send heartbeat every 25s to keep the connection alive
+HEARTBEAT_INTERVAL = 25.0
+
+
 async def prospect_event_generator(city: str, force_refresh: bool = False) -> AsyncGenerator[str, None]:
-    """SSE generator for new prospecting search"""
+    """SSE generator for new prospecting search with heartbeat to prevent Azure timeout."""
     try:
         # 1. Cache handling
         if not force_refresh and await city_has_results(city):
@@ -65,45 +72,83 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
             yield f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands, 'cached': True})}\n\n"
             return
 
-        # 2. Run Workflow (STREAMING)
+        # 2. Run Workflow (STREAMING with heartbeat)
         initial_state = create_initial_state(city).model_dump()
         initial_state["force_refresh"] = force_refresh
         
         # Unique thread_id for Refresh
-        import time
         thread_id = f"prospect_search_{city}"
         if force_refresh:
             thread_id = f"prospect_search_{city}_{int(time.time())}"
             
         config = {"configurable": {"thread_id": thread_id}}
         
-        last_yielded_progress_idx = 0
-        final_result = {}
-
-        async with _get_app_with_postgres() as app:
-            async for event in app.astream(initial_state, config=config, stream_mode="values"):
-                # Track latest state result
-                final_result = event
-                
-                # Check for new progress messages to stream
-                progress = event.get("progress", [])
-                if len(progress) > last_yielded_progress_idx:
-                    for i in range(last_yielded_progress_idx, len(progress)):
-                        yield f"data: {json.dumps({'type': 'progress', 'message': progress[i]})}\n\n"
-                        await asyncio.sleep(0.01)
-                    last_yielded_progress_idx = len(progress)
-            
-            # 3. Finalization
-            # Check if finalized or interrupted (HIL is currently disabled but good to keep logic)
-            state = await app.aget_state(config)
-            interrupted = len(state.next) > 0
-            
-            if interrupted:
-                yield f"data: {json.dumps({'type': 'waiting_approval', 'next_node': state.next[0], 'thread_id': thread_id})}\n\n"
-            else:
-                raw_brands = final_result.get('verified_brands', [])
-                brands = [b.model_dump(by_alias=True) if hasattr(b, 'model_dump') else b for b in raw_brands]
-                yield f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands})}\n\n"
+        # Use a queue to decouple workflow execution from SSE streaming
+        # This allows us to emit heartbeats while the workflow is busy
+        queue: asyncio.Queue = asyncio.Queue()
+        workflow_done = asyncio.Event()
+        workflow_error: list = []
+        
+        async def run_workflow():
+            """Run the workflow in a background task, pushing SSE events to the queue."""
+            last_yielded_progress_idx = 0
+            final_result = {}
+            try:
+                async with _get_app_with_postgres() as app:
+                    async for event in app.astream(initial_state, config=config, stream_mode="values"):
+                        # Track latest state result
+                        final_result = event
+                        
+                        # Check for new progress messages to stream
+                        progress = event.get("progress", [])
+                        if len(progress) > last_yielded_progress_idx:
+                            for i in range(last_yielded_progress_idx, len(progress)):
+                                msg = f"data: {json.dumps({'type': 'progress', 'message': progress[i]})}\n\n"
+                                await queue.put(msg)
+                            last_yielded_progress_idx = len(progress)
+                    
+                    # Finalization
+                    state = await app.aget_state(config)
+                    interrupted = len(state.next) > 0
+                    
+                    if interrupted:
+                        msg = f"data: {json.dumps({'type': 'waiting_approval', 'next_node': state.next[0], 'thread_id': thread_id})}\n\n"
+                        await queue.put(msg)
+                    else:
+                        raw_brands = final_result.get('verified_brands', [])
+                        brands = [b.model_dump(by_alias=True) if hasattr(b, 'model_dump') else b for b in raw_brands]
+                        msg = f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands})}\n\n"
+                        await queue.put(msg)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                error_msg = f"data: {json.dumps({'type': 'error', 'message': str(e) or 'Erro interno no servidor'})}\n\n"
+                await queue.put(error_msg)
+            finally:
+                workflow_done.set()
+        
+        # Start the workflow in the background
+        workflow_task = asyncio.create_task(run_workflow())
+        
+        # Stream events with heartbeat
+        heartbeat_count = 0
+        while not workflow_done.is_set() or not queue.empty():
+            try:
+                # Wait for next event or timeout for heartbeat
+                item = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_INTERVAL)
+                yield item
+            except asyncio.TimeoutError:
+                # No event in HEARTBEAT_INTERVAL seconds — send heartbeat to keep connection alive
+                heartbeat_count += 1
+                yield f"data: {json.dumps({'type': 'heartbeat', 'count': heartbeat_count, 'ts': int(time.time())})}\n\n"
+        
+        # Drain any remaining items in the queue
+        while not queue.empty():
+            item = await queue.get()
+            yield item
+        
+        # Ensure the task is complete
+        await workflow_task
             
     except Exception as e:
         import traceback

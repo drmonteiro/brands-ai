@@ -58,6 +58,9 @@ export default function Home() {
               try {
                 const data = JSON.parse(part.substring(6));
                 
+                // Ignore heartbeat events (keep-alive for Azure SSE)
+                if (data.type === 'heartbeat') continue;
+                
                 // If backend throws an error, gracefully abort and throw
                 if (data.type === 'error') {
                   throw new Error(data.message || "Erro no servidor.");

@@ -72,12 +72,18 @@ async def get_graph_pool():
         connection_kwargs = {
             "autocommit": True,
             "prepare_threshold": 0,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5
         }
         _graph_pool = AsyncConnectionPool(
             conninfo=DB_URI, 
             max_size=10, 
             min_size=1,
             timeout=120.0,
+            max_lifetime=300.0,
+            max_idle=120.0,
             reconnect_timeout=300.0,
             kwargs=connection_kwargs,
             open=False  # Don't try to connect immediately (Neon cold-start)
