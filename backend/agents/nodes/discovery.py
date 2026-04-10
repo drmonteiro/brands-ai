@@ -39,7 +39,7 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
                 response = client.search(
                     query=query,
                     search_depth="advanced",
-                    max_results=30, # Slightly reduced per-query to allow more queries overall
+                    max_results=50, # Increased limits to safely gather more candidates (Cost remains 1 credit per query)
                     exclude_domains=exclude_domains,
                 )
                 

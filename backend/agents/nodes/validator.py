@@ -147,9 +147,9 @@ async def triage_candidate(content: ExtractedContent, target_city: str) -> Dict[
 
 TARGET: Independent boutiques selling mid-to-high range tailored menswear, up to 20 stores.
 Price ranges we target:
-  - Complete suits (jacket + trousers): €500–€1,700
-  - Jackets only: €300–€1,000
-  - Trousers only: €250–€750
+  - Complete suits (jacket + trousers): $500–$2,300
+  - Jackets only: $300–$1,380
+  - Trousers only: $200–$920
 NOT ultra-luxury/bespoke ateliers — we want brands in the affordable premium/tailoring segment, NOT Savile Row level.
 Brands with own label collections or ready-to-wear are a plus.
 
@@ -171,13 +171,13 @@ SCORING GUIDE:
 - 9-10: Perfect match (tailored suits/trousers/waistcoats, within our price ranges, 1-20 stores, own label or RTW, HEADQUARTERED IN {target_city}, PRICES VISIBLE on website)
 - 7-8: Good candidate (mid-high menswear, independent retailer with up to 20 stores, HQ confirmed in {target_city}, prices visible)
 - 5-6: Worth investigating (menswear but unclear on HQ location or price range)
-- 3-4: Probably not a match (large chain with >20 stores, wrong segment, ultra-luxury/bespoke only, OR NOT headquartered in {target_city}, OR appointment-only with no visible catalog)
+- 3-4: Probably not a match (large chain with >20 stores, wrong segment, ultra-luxury/bespoke only, OR NOT headquartered in {target_city})
 - 1-2: Definitely not (fast fashion, women only, not retail, not menswear, budget under €250, or clearly not headquartered in {target_city})
 
 IMPORTANT: If there is NO evidence the brand is HEADQUARTERED in {target_city} (not just having a store there), set city_match to false and cap score at 4.
 IMPORTANT: If the brand is clearly ultra-luxury (suits €3000+, Savile Row bespoke), cap score at 5 — they are above our target range.
 IMPORTANT: If the brand ONLY does made-to-measure/bespoke with NO ready-to-wear or own label collection, set is_bespoke_only to true.
-IMPORTANT: If the website is APPOINTMENT-ONLY (you must "book an appointment" to see/buy products, no browsable catalog or visible prices), set appointment_only to true and cap score at 3.
+IMPORTANT: If the website is APPOINTMENT-ONLY (you must "book an appointment" to see products), DO NOT exclude them, but set appointment_only to true and reduce score by 2.
 IMPORTANT: Set prices_visible to true ONLY if actual product prices (€, £, $) are shown on the website. If prices are hidden or "price on request", set to false and REDUCE score by 2 points.
 BE INCLUSIVE: If the brand sells any kind of menswear (suits, trousers, waistcoats), is headquartered in {target_city}, and has visible prices, give it at least a score of 5.
 
@@ -249,9 +249,9 @@ async def deep_analyze_batch(
     Set "hasHeadquarters" to true ONLY if you have evidence the brand is headquartered in {target_city}.
     
     PRICE RANGES (3 product categories):
-    - Complete suits (jacket + trousers): €500–€1,700
-    - Jackets only: €300–€1,000
-    - Trousers only: €250–€750
+    - Complete suits (jacket + trousers): $500–$2,300
+    - Jackets only: $300–$1,380
+    - Trousers only: $200–$920
     Extract prices for each category when available.
     
     CRITICAL RULES:
@@ -261,7 +261,7 @@ async def deep_analyze_batch(
     4. PRICE EXTRACTION: Find actual prices for suits, jackets AND trousers separately. Convert to EUR if in another currency.
     5. HQ VALIDATION: If you cannot confirm the brand is HEADQUARTERED in {target_city}, EXCLUDE it. Having only a store there is NOT enough.
     6. EXCLUDE BESPOKE-ONLY: If the brand ONLY offers made-to-measure/bespoke with NO ready-to-wear, own label, or wholesale collections, EXCLUDE it.
-    7. EXCLUDE APPOINTMENT-ONLY: If the brand's website requires booking an appointment to see products ("book an appointment", no browsable catalog, no visible prices), EXCLUDE it. We need brands where you can browse and see products/prices online.
+    7. APPOINTMENT-ONLY PENALTY: If the brand's website requires booking an appointment to see products, DO NOT exclude it, but reduce fitScore by 20 points.
     8. PRICE VISIBILITY: Strongly prefer brands with VISIBLE prices on their website. If prices are not public ("price on request", hidden pricing), set priceSource to "not_public" and REDUCE fitScore by 15 points. Brands with visible prices should get a fitScore BONUS of +10.
     9. BE INCLUSIVE: Include ALL brands that sell menswear (suits, trousers, waistcoats), are HEADQUARTERED in {target_city}, have up to 20 stores, have visible prices, and are within the target price ranges.
     
@@ -379,13 +379,13 @@ async def validation_node(
         )
 
         # Cap candidates to avoid timeout on large cities (Azure SSE ~4min limit)
-        MAX_CANDIDATES = 80
+        MAX_CANDIDATES = 120
         if len(candidate_urls) > MAX_CANDIDATES:
             import random as _random
             _random.shuffle(candidate_urls)
             candidate_urls = candidate_urls[:MAX_CANDIDATES]
             new_progress.append(
-                f"   ⚡ Limitado a {MAX_CANDIDATES} candidatos para otimizar tempo"
+                f"   ⚡ Limitado a {MAX_CANDIDATES} candidatos para garantir volume e otimizar tempo"
             )
 
         # ================================================================
@@ -440,10 +440,10 @@ async def validation_node(
         pre_filtered = []
         appointment_only_count = 0
         for idx, content in enumerate(enriched_contents):
-            # Appointment-only detection (FREE — no API call)
+            appointment_only = False
             if is_appointment_only(content.content):
                 appointment_only_count += 1
-                continue
+                appointment_only = True
             
             price_info = extract_price_from_content(content.content)
             price_eur = price_info.get("avg_price", 0)
@@ -466,7 +466,8 @@ async def validation_node(
                 (similarity_score * 0.5) + 
                 (content.quality_score * 4) + 
                 price_bonus +
-                (10 if price_confidence > 0.5 else 0)
+                (10 if price_confidence > 0.5 else 0) -
+                (4 if appointment_only else 0)
             )
 
             pre_filtered.append({
@@ -479,12 +480,12 @@ async def validation_node(
 
         if appointment_only_count > 0:
             new_progress.append(
-                f"   📅 {appointment_only_count} sites descartados (só por marcação, sem catálogo visível)"
+                f"   📅 {appointment_only_count} sites identificados como 'só por marcação' (penalizados, mas não descartados)"
             )
 
         pre_filtered.sort(key=lambda x: x["score"], reverse=True)
-        # Take top 50 for triage (triage is cheap, we want more brands)
-        triage_candidates = [x["content"] for x in pre_filtered[:50]]
+        # Take top 80 for triage (triage is cheap, we want more brands to survive)
+        triage_candidates = [x["content"] for x in pre_filtered[:80]]
 
         new_progress.append(
             f"   📊 Pré-filtro: {len(triage_candidates)} candidatos para triagem"
@@ -522,10 +523,10 @@ async def validation_node(
                 score = min(score, 4)  # Cap at 4 if no city presence
                 city_rejected_count += 1
             
-            # Skip appointment-only brands (no browsable catalog)
+            # Reduce score for appointment-only brands
             if is_appointment_only_llm:
                 appointment_rejected_count += 1
-                continue
+                score -= 2
             
             # Skip brands that ONLY do bespoke/made-to-measure
             if is_bespoke_only:
@@ -537,12 +538,12 @@ async def validation_node(
                 score -= 1  # Soft penalty — premium boutiques often hide prices
                 no_price_penalized_count += 1
                 
-            if score >= 5 and result.get("is_menswear", True):
+            if score >= 4 and result.get("is_menswear", True):
                 triage_passed.append(content)
 
         if city_rejected_count > 0:
             new_progress.append(
-                f"   🏙️ {city_rejected_count} rejeitados por ausência em {target_city}"
+                f"   🏙️ {city_rejected_count} rejeitados por ausência de lojas em {target_city}"
             )
         if bespoke_only_count > 0:
             new_progress.append(
@@ -550,7 +551,7 @@ async def validation_node(
             )
         if appointment_rejected_count > 0:
             new_progress.append(
-                f"   📅 {appointment_rejected_count} descartados (só por marcação, sem catálogo visível)"
+                f"   📅 {appointment_rejected_count} penalizados (só por marcação, sem catálogo visível)"
             )
         if no_price_penalized_count > 0:
             new_progress.append(
