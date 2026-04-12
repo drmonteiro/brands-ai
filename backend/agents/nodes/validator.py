@@ -153,10 +153,9 @@ Price ranges we target:
 NOT ultra-luxury/bespoke ateliers — we want brands in the affordable premium/tailoring segment, NOT Savile Row level.
 Brands with own label collections or ready-to-wear are a plus.
 
-⚠️ HEADQUARTERS RULE — READ CAREFULLY:
-The brand MUST be HEADQUARTERED in {target_city} — meaning its corporate headquarters, main office, or founding base is in {target_city}.
-Having just a retail store, pop-up, or point of sale in {target_city} is NOT enough.
-If the brand is headquartered elsewhere (e.g., a London brand with a store in {target_city}), set city_match to false.
+⚠️ PHYSICAL PRESENCE RULE — READ CAREFULLY:
+The brand MUST have a physical store, showroom, or strong retail presence in {target_city}.
+If the brand only sells online and has NO physical presence in {target_city}, set city_match to false.
 
 CANDIDATE URL: {content.url}
 CONTENT (preview):
@@ -168,13 +167,13 @@ Return ONLY valid JSON:
 {{"score": 1-10, "reason": "one short sentence", "is_menswear": true/false, "estimated_price_tier": "budget|mid|premium|luxury|unknown", "estimated_stores": "independent_1_20|chain_20_plus|unknown", "is_chain": true/false, "city_match": true/false, "is_bespoke_only": true/false, "appointment_only": true/false, "prices_visible": true/false}}
 
 SCORING GUIDE:
-- 9-10: Perfect match (tailored suits/trousers/waistcoats, within our price ranges, 1-20 stores, own label or RTW, HEADQUARTERED IN {target_city}, PRICES VISIBLE on website)
-- 7-8: Good candidate (mid-high menswear, independent retailer with up to 20 stores, HQ confirmed in {target_city}, prices visible)
-- 5-6: Worth investigating (menswear but unclear on HQ location or price range)
-- 3-4: Probably not a match (large chain with >20 stores, wrong segment, ultra-luxury/bespoke only, OR NOT headquartered in {target_city})
-- 1-2: Definitely not (fast fashion, women only, not retail, not menswear, budget under €250, or clearly not headquartered in {target_city})
+- 9-10: Perfect match (tailored suits/trousers/waistcoats, within our price ranges, 1-20 stores, own label or RTW, PHYSICAL STORE IN {target_city}, PRICES VISIBLE on website)
+- 7-8: Good candidate (mid-high menswear, independent retailer with up to 20 stores, store confirmed in {target_city}, prices visible)
+- 5-6: Worth investigating (menswear but unclear on physical locations or price range)
+- 3-4: Probably not a match (large chain with >20 stores, wrong segment, ultra-luxury/bespoke only, OR NO physical presence in {target_city})
+- 1-2: Definitely not (fast fashion, women only, not retail, not menswear, budget under €250, or clearly NO physical presence in {target_city})
 
-IMPORTANT: If there is NO evidence the brand is HEADQUARTERED in {target_city} (not just having a store there), set city_match to false and cap score at 4.
+IMPORTANT: If there is NO evidence the brand has a physical store/showroom in {target_city}, set city_match to false and cap score at 4.
 IMPORTANT: If the brand is clearly ultra-luxury (suits €3000+, Savile Row bespoke), cap score at 5 — they are above our target range.
 IMPORTANT: If the brand ONLY does made-to-measure/bespoke with NO ready-to-wear or own label collection, set is_bespoke_only to true.
 IMPORTANT: If the website is APPOINTMENT-ONLY (you must "book an appointment" to see products), DO NOT exclude them, but set appointment_only to true and reduce score by 2.
@@ -240,13 +239,11 @@ async def deep_analyze_batch(
     TASK: Return a JSON array of brands that are good partnership opportunities.
     LANGUAGE: Use PORTUGUESE (PORTUGAL) for all descriptive text.
     
-    ⚠️ MANDATORY HEADQUARTERS RULE — READ CAREFULLY:
-    The brand MUST be HEADQUARTERED (sede corporativa) in {target_city}.
-    "Headquartered" means the brand's corporate headquarters, main office, founding base, or principal place of business is in {target_city}.
-    Brands that merely have a retail store, pop-up shop, or point of sale in {target_city} but are headquartered elsewhere MUST be EXCLUDED.
-    For example: if a London-based brand has a store in {target_city}, it should NOT be included.
-    The "headquartersAddress" field must contain the HQ address in {target_city}.
-    Set "hasHeadquarters" to true ONLY if you have evidence the brand is headquartered in {target_city}.
+    ⚠️ MANDATORY PHYSICAL PRESENCE RULE — READ CAREFULLY:
+    The brand MUST have a physical store, showroom, or retail presence in {target_city}.
+    Brands that are 100% online with no locations in {target_city} MUST be EXCLUDED.
+    Very Important: Even if the brand has a store in {target_city}, try to find out where their ACTUAL Headquarters is located.
+    Format the "headquartersAddress" field explicitly mentioning the HQ, e.g., "Sede em Londres (Loja em {target_city})" or "Sede em Nova Iorque".
     
     PRICE RANGES (3 product categories):
     - Complete suits (jacket + trousers): $500–$2,300
@@ -259,11 +256,11 @@ async def deep_analyze_batch(
     2. CONTACT EXTRACTION: Search content for CEO, Founder, Owner names, emails, LinkedIn profiles.
     3. SEMANTIC FIT: Evaluate how closely the brand matches the "Golden Profile".
     4. PRICE EXTRACTION: Find actual prices for suits, jackets AND trousers separately. Convert to EUR if in another currency.
-    5. HQ VALIDATION: If you cannot confirm the brand is HEADQUARTERED in {target_city}, EXCLUDE it. Having only a store there is NOT enough.
+    5. PRESENCE VALIDATION: If you cannot confirm the brand has a physical presence in {target_city}, EXCLUDE it. DO NOT exclude it if headquartered elsewhere, as long as they have a store.
     6. EXCLUDE BESPOKE-ONLY: If the brand ONLY offers made-to-measure/bespoke with NO ready-to-wear, own label, or wholesale collections, EXCLUDE it.
     7. APPOINTMENT-ONLY PENALTY: If the brand's website requires booking an appointment to see products, DO NOT exclude it, but reduce fitScore by 20 points.
     8. PRICE VISIBILITY: Strongly prefer brands with VISIBLE prices on their website. If prices are not public ("price on request", hidden pricing), set priceSource to "not_public" and REDUCE fitScore by 15 points. Brands with visible prices should get a fitScore BONUS of +10.
-    9. BE INCLUSIVE: Include ALL brands that sell menswear (suits, trousers, waistcoats), are HEADQUARTERED in {target_city}, have up to 20 stores, have visible prices, and are within the target price ranges.
+    9. BE INCLUSIVE: Include ALL brands that sell menswear (suits, trousers, waistcoats), HAVE A STORE in {target_city}, have up to 20 stores, have visible prices, and are within the target price ranges.
     
     FORMAT: Return ONLY a JSON array:
     [
@@ -591,57 +588,46 @@ async def validation_node(
             )
 
         # ================================================================
-        # PHASE 2b: POST-LLM HEADQUARTERS VALIDATION
+        # PHASE 2b: POST-LLM PHYSICAL PRESENCE VALIDATION
         # ================================================================
         city_filtered_candidates = []
         city_rejected = 0
         target_city_lower = (target_city or "").lower()
         
         for data in all_candidates:
-            # Check hasHeadquarters flag from LLM (fallback to legacy hasPhysicalPresence)
-            has_hq = data.get("hasHeadquarters", data.get("hasPhysicalPresence", True))
+            # Check hasPhysicalPresence flag from LLM
+            has_presence = data.get("hasPhysicalPresence", data.get("hasHeadquarters", True))
             
-            # Validate headquartersAddress contains the target city
+            # Validate address or storeLocations contains the target city
             hq_address = (data.get("headquartersAddress") or "").lower()
             hq_in_city = target_city_lower in hq_address
             
-            # Also check storeLocations as secondary signal
             store_locs = data.get("storeLocations", []) or []
             locations_text = " ".join(str(loc) for loc in store_locs).lower()
             city_in_locations = target_city_lower in locations_text
             
-            # If LLM says no HQ AND address doesn't mention the city, reject
-            if not has_hq and not hq_in_city:
-                city_rejected += 1
-                print(f"[VALIDATION] Rejected {data.get('name', '?')}: not headquartered in {target_city} (HQ: {hq_address})")
-                continue
-            
-            # Even if LLM says HQ=true, verify HQ address matches
-            # (catches hallucinations — brands with stores but not HQ in city)
+            # Since the LLM is explicitly asked to put "Sede em X (Loja em Y)", 
+            # we just ensure they have a store or some city evidence in the triage content
+            # if the target city is not explicitly parsed in their locations list.
             if not hq_in_city and not city_in_locations:
-                # LLM says HQ but address doesn't match — suspicious
-                # Check if brand name + city + HQ keywords appear in scraped content
                 brand_name = data.get("name", "").lower()
-                found_hq_evidence = False
-                hq_keywords = ["headquarter", "headquarters", "head office", "sede", "siège", "hauptsitz", "founded in", "based in"]
+                found_city_evidence = False
                 for content in triage_passed:
                     if content.content:
                         content_lower = content.content.lower()
                         if brand_name in content_lower and target_city_lower in content_lower:
-                            # Check for HQ-related keywords near city mention
-                            if any(kw in content_lower for kw in hq_keywords):
-                                found_hq_evidence = True
-                                break
+                            found_city_evidence = True
+                            break
                 
-                if not found_hq_evidence:
+                if not found_city_evidence:
                     city_rejected += 1
-                    print(f"[VALIDATION] Rejected {data.get('name', '?')}: no HQ evidence in {target_city} (address: {hq_address}, stores: {store_locs})")
+                    print(f"[VALIDATION] Rejected {data.get('name', '?')}: no presence evidence in {target_city}")
                     continue
             
             city_filtered_candidates.append(data)
         
         if city_rejected > 0:
-            new_progress.append(f"   🏙️ {city_rejected} marcas rejeitadas — sede não confirmada em {target_city}")
+            new_progress.append(f"   🏙️ {city_rejected} marcas rejeitadas — sem presença confirmada em {target_city}")
         
         all_candidates = city_filtered_candidates
 
