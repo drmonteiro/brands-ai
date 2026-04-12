@@ -20,7 +20,8 @@ from services.content_scraper import batch_extract_content, enrich_content_with_
 from services.price_extractor import extract_price_from_content
 from services.vector_db import find_similar_clients
 from services.client_analysis import generate_rich_client_examples
-from services.database import is_domain_suppressed
+from services.database import is_domain_suppressed, extract_domain
+from data.lanca_clients import LANCA_CLIENTS
 
 # Limit global validation concurrency (e.g., 3 city searches at a time)
 validation_semaphore = asyncio.Semaphore(3)
@@ -338,10 +339,15 @@ async def validation_node(
         # ================================================================
         # PHASE 0: URL AGGREGATION + KNOWN CHAIN EXCLUSION
         # ================================================================
+        # Existing Clients Suppression
+        client_domains = {extract_domain(c.get("url", "")) for c in LANCA_CLIENTS if c.get("url")}
+        client_names = {c["name"].lower().strip() for c in LANCA_CLIENTS}
+        
         candidate_urls = []
         url_to_origin = {}
         seen_domains = set()
         excluded_chains = 0
+        excluded_existing_clients = 0
 
         for q in search_results:
             origin = q.query_origin if hasattr(q, "query_origin") else q.get("query_origin", "Unknown")
@@ -350,9 +356,15 @@ async def validation_node(
                 url = r.get("url")
                 title = r.get("title", "")
                 if url:
-                    domain = get_domain_from_url(url)
+                    domain = extract_domain(url)
                     if domain not in seen_domains:
-                        # Known chain exclusion (FREE — no API call)
+                        # 1. Existing Client Exclusion
+                        if domain in client_domains or any(name in title.lower() for name in client_names):
+                            excluded_existing_clients += 1
+                            seen_domains.add(domain)
+                            continue
+
+                        # 2. Known chain exclusion (FREE — no API call)
                         if is_known_chain(url, title):
                             excluded_chains += 1
                             seen_domains.add(domain)
@@ -367,6 +379,9 @@ async def validation_node(
                         norm_url = normalize_url(url)
                         url_to_origin[norm_url] = origin
                         candidate_urls.append(url)
+
+        if excluded_existing_clients > 0:
+            new_progress.append(f"🤝 {excluded_existing_clients} parceiros atuais (clientes Lança) omitidos da prospecção")
 
         if excluded_chains > 0:
             new_progress.append(f"🛡️ {excluded_chains} cadeias conhecidas excluídas automaticamente")
@@ -448,6 +463,11 @@ async def validation_node(
             
             # Hard filter: if price is confirmed with HIGH confidence AND below €250, skip
             if price_confidence > 0.75 and 0 < price_eur < 250:
+                continue
+
+            # NEW Hard Filter: Upper Bound ($2300 approx €2150)
+            # If price is clearly ABOVE our maximum range, skip
+            if price_confidence > 0.8 and price_eur > 2500:
                 continue
 
             similarity_score = similarity_scores[idx]
