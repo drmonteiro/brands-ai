@@ -10,12 +10,14 @@ import {
     Users,
     Settings,
     LogOut,
+    Bot
 } from "lucide-react";
 
 const menuItems = [
     { name: "Pesquisa", description: "Encontrar marcas", icon: Search, href: "/" },
     { name: "Cidades Guardadas", description: "Base de dados", icon: Archive, href: "/saved-cities" },
     { name: "Clientes", description: "Rede de parceiros", icon: Users, href: "/clients" },
+    { name: "Consultor IA", description: "Analisar dados", icon: Bot, href: "/chat" },
 ];
 
 export function Sidebar() {
