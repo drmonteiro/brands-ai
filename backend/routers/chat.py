@@ -1,14 +1,40 @@
-from fastapi import APIRouter, HTTPException, Depends
+"""
+Consultor IA — RAG Chat System for Confeções Lança
+===================================================
+High-quality conversational AI that answers questions about prospected brands
+using real data from the PostgreSQL database (prospects table).
+
+Architecture:
+  1. User sends a message (+ optional city filter + conversation history)
+  2. Backend fetches ALL relevant prospect data from DB (full RAG context)
+  3. Data is formatted into a rich, structured context block
+  4. A carefully engineered system prompt positions the AI as a Lança commercial analyst
+  5. GPT-5.1 (full model, not mini) generates a high-quality, data-grounded response
+  6. Response is returned with the city list for the frontend dropdown
+"""
+
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-from services.database import get_prospects_by_city, get_all_prospects
+from services.database import (
+    get_prospects_by_city, 
+    get_all_prospects, 
+    get_all_searched_cities,
+    get_dashboard_stats
+)
+from data.lanca_clients import LANCA_CLIENTS, IDEAL_CLIENT_PROFILE
 from agents.nodes.utils import get_llm
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+
+# ============================================================================
+# SCHEMAS
+# ============================================================================
+
 class ChatMessage(BaseModel):
-    role: str # "user" or "assistant"
+    role: str  # "user" or "assistant"
     content: str
 
 class ChatRequest(BaseModel):
@@ -16,66 +42,238 @@ class ChatRequest(BaseModel):
     city: Optional[str] = None
     history: List[ChatMessage] = []
 
+
+# ============================================================================
+# CONTEXT BUILDER — Transforms DB rows into rich LLM context
+# ============================================================================
+
+def build_prospect_context(prospects: list, context_label: str) -> str:
+    """
+    Transforms a list of prospect dicts from the DB into a structured
+    text block that the LLM can reason over accurately.
+    """
+    if not prospects:
+        return f"📭 {context_label}: Nenhuma marca encontrada na base de dados para este filtro.\n"
+
+    lines = [f"📊 {context_label} — {len(prospects)} marcas encontradas:\n"]    
+    lines.append("=" * 60)
+
+    for i, p in enumerate(prospects, 1):
+        name = p.get("name", "N/A")
+        city = p.get("city", "N/A")
+        country = p.get("country", "N/A")
+        url = p.get("website_url", "N/A")
+        hq = p.get("headquarters_address", "N/A")
+        price = p.get("avg_suit_price_eur", 0)
+        store_count = p.get("store_count", 0)
+        style = p.get("brand_style", "N/A")
+        model = p.get("business_model", "N/A")
+        overview = p.get("company_overview", "")
+        description = p.get("detailed_description", "")
+        mtm = "Sim" if p.get("made_to_measure") else "Não"
+        heritage = "Sim" if p.get("heritage_brand") else "Não"
+        appt_only = "Sim" if p.get("is_appointment_only") else "Não"
+        prices_visible = "Sim" if p.get("prices_visible") else "Não"
+        price_source = p.get("price_source", "N/A")
+        
+        # Scores
+        final_score = p.get("final_score", 0)
+        fit_score = p.get("fit_score", 0)
+        quality_score = p.get("quality_score", 0)
+        similarity_score = p.get("similarity_score", 0)
+        
+        # Similar client
+        similar_client = p.get("most_similar_client", "N/A")
+        similarity_explanation = p.get("similarity_explanation", "")
+        
+        # Contact
+        contact_name = p.get("contact_name") or "Não encontrado"
+        contact_role = p.get("contact_role") or ""
+        contact_email = p.get("contact_email") or "Não encontrado"
+        contact_phone = p.get("contact_phone") or ""
+        contact_linkedin = p.get("contact_linkedin") or ""
+        
+        # Store locations
+        store_locs = p.get("store_locations", [])
+        if isinstance(store_locs, str):
+            store_locs_str = store_locs
+        elif isinstance(store_locs, list):
+            store_locs_str = ", ".join(str(s) for s in store_locs[:5]) if store_locs else "N/A"
+        else:
+            store_locs_str = "N/A"
+        
+        # Status
+        status = p.get("status", "new")
+        status_map = {"new": "Novo", "contacted": "Contactado", "converted": "Convertido", "rejected": "Rejeitado"}
+        status_pt = status_map.get(status, status)
+
+        lines.append(f"""
+┌─ {i}. {name.upper()}
+│  Cidade: {city} | País: {country}
+│  Website: {url}
+│  Sede/Localização: {hq}
+│  Lojas: {store_count} | Localizações: {store_locs_str}
+│  Preço Médio Fatos: {price}€ | Preços Visíveis: {prices_visible} | Fonte: {price_source}
+│  Estilo: {style} | Modelo de Negócio: {model}
+│  Made-to-Measure: {mtm} | Heritage: {heritage} | Só por Marcação: {appt_only}
+│  Score Final: {final_score}/100 | Fit Score: {fit_score} | Qualidade: {quality_score} | Similaridade: {similarity_score}
+│  Cliente Lança Mais Parecido: {similar_client}
+│  Explicação de Similaridade: {similarity_explanation[:200] if similarity_explanation else 'N/A'}
+│  Contacto: {contact_name} ({contact_role}) | Email: {contact_email} | Tel: {contact_phone}
+│  LinkedIn: {contact_linkedin or 'N/A'}
+│  Estado Comercial: {status_pt}
+│  Descrição: {(overview or description)[:300]}
+└──────────────────────────────""")
+
+    return "\n".join(lines)
+
+
+def build_client_context() -> str:
+    """Build context about existing Lança clients for reference."""
+    lines = ["📋 CLIENTES ATUAIS DA LANÇA (18 parceiros):"]
+    for c in LANCA_CLIENTS:
+        suit_price = c.get("pvp_suits_eur", "N/A")
+        lines.append(f"  • {c['name']} ({c['city']}, {c['country']}) — Fatos: {suit_price}€ | {c.get('store_count', '?')} lojas | Tier: {c.get('tier', 'N/A')}")
+    
+    profile = IDEAL_CLIENT_PROFILE
+    lines.append(f"\n🎯 PERFIL IDEAL: {profile['avg_store_count']} lojas média, PVP médio {profile['avg_pvp_eur']}€")
+    return "\n".join(lines)
+
+
+# ============================================================================
+# SYSTEM PROMPT — The "brain" of the Consultor IA
+# ============================================================================
+
+SYSTEM_PROMPT_TEMPLATE = """
+Tu és o **Consultor IA da Confeções Lança**, o assistente de inteligência comercial mais avançado da empresa.
+A Confeções Lança é uma fábrica portuguesa de alfaiataria premium (desde 1973) que produz fatos, casacos e calças para marcas internacionais (B2B). 
+
+A tua missão é ajudar a equipa comercial a analisar e interpretar os dados de prospecção de mercado recolhidos pelo motor de IA da plataforma.
+
+═══════════════════════════════════════════
+CONTEXTO DA EMPRESA LANÇA:
+═══════════════════════════════════════════
+- Fábrica portuguesa de alfaiataria de alta qualidade (B2B / Private Label)
+- Produz para marcas internacionais: fatos completos, casacos, calças
+- Gama de preços alvo (PVP das marcas parceiras): Fatos 500€-2.300€ | Casacos 300€-1.380€ | Calças 200€-920€
+- Clientes ideais: boutiques independentes com 1-20 lojas, marca própria, segmento premium
+- Mercados fortes: UK (44%), Espanha, Portugal, Europa Central, Américas
+
+{client_context}
+
+═══════════════════════════════════════════
+BASE DE DADOS DE LEADS PROSPETADOS:
+═══════════════════════════════════════════
+{prospect_context}
+
+═══════════════════════════════════════════
+ESTATÍSTICAS GERAIS:
+═══════════════════════════════════════════
+{stats_context}
+
+═══════════════════════════════════════════
+REGRAS DE COMUNICAÇÃO:
+═══════════════════════════════════════════
+1. Responde SEMPRE em Português Europeu (PT-PT), nunca em Brasileiro.
+2. Sê direto, analítico e conciso. Usa bullet points e parágrafos curtos.
+3. Quando mencionares uma marca, inclui SEMPRE: Nome, Preço Médio, Score, Website (se disponível).
+4. Se te perguntarem algo que NÃO está nos dados, diz claramente: "Essa informação não está disponível na nossa base de dados atual."
+5. Se te perguntarem algo fora do âmbito comercial/moda, responde educadamente mas redireciona para o teu propósito.
+6. Quando fizeres recomendações, justifica com dados concretos (scores, preços, similaridade com clientes existentes).
+7. Se te pedirem uma análise comparativa, organiza em tabela ou ranking claro.
+8. Lembra-te que o teu público são vendedores comerciais da Lança — gente prática que precisa de informação acionável.
+9. Nunca inventes dados. Se um campo diz N/A, diz que não temos essa informação.
+10. Se te perguntarem por uma cidade que não existe na base de dados, sugere que pesquisem essa cidade primeiro na página de Pesquisa.
+
+═══════════════════════════════════════════
+CAPACIDADES ESPECIAIS:
+═══════════════════════════════════════════
+- Podes criar rankings de marcas por preço, score, número de lojas
+- Podes identificar as marcas mais parecidas com clientes atuais
+- Podes recomendar estratégias de abordagem (ex: "Esta marca é Heritage, aborda com referência à tradição portuguesa")
+- Podes alertar para riscos (ex: "Esta marca é só por marcação, pode ser mais difícil de abordar por email frio")
+- Podes comparar marcas entre si
+- Podes sugerir quais leads priorizar com base no score e no perfil
+"""
+
+
+# ============================================================================
+# CHAT ENDPOINT
+# ============================================================================
+
 @router.post("")
 async def process_chat(request: ChatRequest):
     try:
-        # 1. Fetch Context
-        if request.city and request.city.strip().lower() != "todas":
-            prospects_data = await get_prospects_by_city(request.city, limit=50)
-            context_title = f"Marcas validadas em {request.city}"
+        # ── 1. Fetch prospect data (RAG retrieval) ──
+        if request.city and request.city.strip().lower() not in ("todas", "global", "all", ""):
+            city = request.city.strip()
+            prospects_data = await get_prospects_by_city(city, limit=50)
+            context_label = f"Marcas prospetadas em {city}"
         else:
             prospects_data = await get_all_prospects(limit=100)
-            context_title = "Todas as marcas validadas (amostra de 100)"
-        
-        # 2. Format Context for LLM
-        context_str = f"=== CONTEXTO DO SISTEMA: {context_title} ===\n"
-        if not prospects_data:
-            context_str += "Não existem marcas guardadas para os filtros selecionados.\n"
-        else:
-            for i, p in enumerate(prospects_data):
-                context_str += f"{i+1}. Nome: {p.get('name', 'N/A')}\n"
-                context_str += f"   - Sede/Lojas: {p.get('headquarters_address', 'N/A')}\n"
-                context_str += f"   - Fatos (PVP): {p.get('avg_suit_price_eur', 'N/A')}€\n"
-                context_str += f"   - Preços Visíveis: {p.get('prices_visible', False)}\n"
-                context_str += f"   - Só por Marcação: {p.get('is_appointment_only', False)}\n"
-                context_str += f"   - Score Lança AI: {p.get('final_score', 'N/A')}\n"
-                context_str += f"   - Link: {p.get('website_url', 'N/A')}\n\n"
+            context_label = "Todas as marcas prospetadas (global)"
 
-        # 3. Build Prompt
-        system_prompt = f"""
-        És o Consultor IA da Confeções Lança, um especialista em mercado premium de moda masculina (b2b).
-        A tua função é analisar a base de dados de leads extraídas e responder às dúvidas do comercial de forma direta, analítica e concisa.
-        Usa SEMPRE português europeu. 
+        # ── 2. Build rich context ──
+        prospect_context = build_prospect_context(prospects_data, context_label)
+        client_context = build_client_context()
         
-        {context_str}
-        
-        REGRAS IMPORTANTES:
-        - Os limites de preço alvo da Lança são fatos entre 500€ e 2300€. Se o user perguntar quais as marcas fora do target, avisa que o sistema filtra automaticamente os outliers, mas analisa os dados acima.
-        - Quando mencionares uma marca, podes incluir o Link se relevante e o preço médio dos fatos.
-        - Se a pergunta não for sobre as marcas, responde de forma educada mas volta o tema para as marcas.
-        - Sê muito direto, escrevendo em parágrafos curtos ou bullet points.
-        """
+        # Stats context
+        try:
+            stats = await get_dashboard_stats()
+            cities = await get_all_searched_cities()
+            city_names = [c["city"] for c in cities] if cities else []
+            stats_context = (
+                f"Total de marcas na BD: {stats.get('total_prospects', 0)}\n"
+                f"Cidades pesquisadas: {', '.join(city_names) if city_names else 'Nenhuma'}\n"
+                f"Score médio global: {stats.get('avg_score', 0):.0f}/100"
+            )
+        except Exception:
+            stats_context = "Estatísticas indisponíveis."
 
+        # ── 3. Compose system prompt ──
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            prospect_context=prospect_context,
+            client_context=client_context,
+            stats_context=stats_context
+        )
+
+        # ── 4. Build message chain ──
         messages = [SystemMessage(content=system_prompt)]
-        
-        # Add history
-        for msg in request.history:
-            # We skip system messages in history to focus on user/assistant
+
+        # Add conversation history (properly mapped to LangChain message types)
+        for msg in request.history[-10:]:  # Keep last 10 messages to avoid token overflow
             if msg.role == "user":
                 messages.append(HumanMessage(content=msg.content))
             elif msg.role == "assistant":
-                # For simplicity here we just use HumanMessage with a prefix, or properly mapped
-                messages.append(HumanMessage(content=f"Assistant: {msg.content}"))
-        
-        # Add current message
+                messages.append(AIMessage(content=msg.content))
+
+        # Add current user message
         messages.append(HumanMessage(content=request.message))
 
-        # 4. Generate Response
-        llm = get_llm(fast=True)  # Using fast model (e.g. gpt-4o-mini) for chat speed
+        # ── 5. Generate response (using FULL model for quality) ──
+        llm = get_llm(fast=False)  # GPT-5.1 full — quality over speed for chat
         response = llm.invoke(messages)
 
         return {"response": response.content}
-        
+
     except Exception as e:
         print(f"[CHAT ERROR] {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# CITIES LIST — For the frontend dropdown
+# ============================================================================
+
+@router.get("/cities")
+async def get_chat_cities():
+    """Return list of cities that have been searched (for the dropdown filter)."""
+    try:
+        cities = await get_all_searched_cities()
+        city_list = [{"name": c["city"], "count": c["total_prospects"]} for c in cities]
+        return {"cities": city_list}
+    except Exception as e:
+        print(f"[CHAT CITIES ERROR] {e}")
+        return {"cities": []}
