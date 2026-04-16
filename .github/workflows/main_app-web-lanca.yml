@@ -19,13 +19,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Create and start virtual environment
+      - name: Install dependencies directly to package folder
         working-directory: ./backend
         run: |
-          python3 -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          python3 -m pip install --upgrade pip
+          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
       
       - name: Zip artifact for deployment
         working-directory: ./backend
@@ -46,13 +44,10 @@ jobs:
         with:
           name: python-app
 
-      - name: Unzip artifact
-        run: unzip release.zip -d backend
-
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'lanca-ai-backend-api'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: backend
+          package: release.zip
