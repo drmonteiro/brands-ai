@@ -11,33 +11,36 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python version
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies directly to package folder
+      - name: Install dependencies
         working-directory: ./backend
         run: |
-          python3 -m pip install --upgrade pip
-          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
-      
-      - name: Zip artifact for deployment
-        working-directory: ./backend
-        run: zip -r release.zip ./* -x "venv/*" "antenv/*" "__pycache__/*"
+          python -m venv antenv
+          source antenv/bin/activate
+          pip install -r requirements.txt
 
-      - name: Upload artifact for deployment jobs
+      - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: backend/release.zip
+          path: |
+            ./backend
+            !./backend/antenv/
+            !./backend/venv/
+            !./backend/__pycache__/
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
+
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
@@ -50,4 +53,3 @@ jobs:
           app-name: 'lanca-ai-backend-api'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: release.zip
