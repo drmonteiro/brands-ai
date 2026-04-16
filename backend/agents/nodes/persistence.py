@@ -98,6 +98,7 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
             "contact_email": brand_dict.get("contactEmail") or brand_dict.get("contact_email"),
             "contact_phone": brand_dict.get("contactPhone") or brand_dict.get("contact_phone"),
             "contact_linkedin": brand_dict.get("contactLinkedin") or brand_dict.get("contact_linkedin"),
+            "price_note": brand_dict.get("priceNote") or brand_dict.get("price_note"),
         }
         
         # ============================================================
