@@ -41,20 +41,35 @@ export default function ChatDashboard() {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    // Fetch available cities from backend
+    // Fetch chat history and available cities
     useEffect(() => {
-        const fetchCities = async () => {
+        const loadInitialData = async () => {
             try {
-                const res = await fetch(`${API_URL}/api/chat/cities`);
-                if (res.ok) {
-                    const data = await res.json();
+                // 1. Fetch Cities
+                const citiesRes = await fetch(`${API_URL}/api/chat/cities`);
+                if (citiesRes.ok) {
+                    const data = await citiesRes.json();
                     setCities(data.cities || []);
                 }
+
+                // 2. Fetch History
+                const historyRes = await fetch(`${API_URL}/api/chat/history`);
+                if (historyRes.ok) {
+                    const data = await historyRes.json();
+                    if (data.history && data.history.length > 0) {
+                        const mappedHistory = data.history.map((m: any) => ({
+                            role: m.role,
+                            content: m.content,
+                            timestamp: new Date(m.created_at)
+                        }));
+                        setMessages(mappedHistory);
+                    }
+                }
             } catch (e) {
-                console.error("Failed to fetch cities:", e);
+                console.error("Failed to load initial chat data:", e);
             }
         };
-        fetchCities();
+        loadInitialData();
     }, []);
 
     const scrollToBottom = useCallback(() => {

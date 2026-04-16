@@ -260,8 +260,8 @@ async def deep_analyze_batch(
     5. PRESENCE VALIDATION: If you cannot confirm the brand has a physical presence in {target_city}, EXCLUDE it. DO NOT exclude it if headquartered elsewhere, as long as they have a store.
     6. EXCLUDE BESPOKE-ONLY: If the brand ONLY offers made-to-measure/bespoke with NO ready-to-wear, own label, or wholesale collections, EXCLUDE it.
     7. APPOINTMENT-ONLY PENALTY: If the brand's website requires booking an appointment to see products, DO NOT exclude it, but reduce fitScore by 20 points.
-    8. PRICE VISIBILITY: Strongly prefer brands with VISIBLE prices on their website. If prices are not public ("price on request", hidden pricing), set priceSource to "not_public" and REDUCE fitScore by 15 points. Brands with visible prices should get a fitScore BONUS of +10.
-    9. BE INCLUSIVE: Include ALL brands that sell menswear (suits, trousers, waistcoats), HAVE A STORE in {target_city}, have up to 20 stores, have visible prices, and are within the target price ranges.
+    8. PRICE VISIBILITY & NOTES: Se não houver preços no site, MAS houver indicação como "prices starting at $1500", preenche o "avgPrice" com esse valor, MAS OBRIGATORIAMENTE coloca no campo "priceNote" o texto "A partir de [VALOR]". Se nem isso estiver presente (ou seja, preços 100% indisponíveis), no campo "priceNote" escreve estritamente a frase: "O site não contém os preços dos fatos", e coloca o "avgPrice" como 0. NUNCA inventes ou deduzas o "avgPrice" por ti próprio — se não há provas do preço no texto, devolve sempre 0. 
+    9. BE INCLUSIVE: Include ALL brands that sell menswear (suits, trousers, waistcoats), HAVE A STORE in {target_city}, have up to 20 stores, and are within the target price ranges.
     
     FORMAT: Return ONLY a JSON array:
     [

@@ -1,0 +1,7 @@
+Found 6 recent brands
+{'name': 'Erol Custom Tailor', 'city': 'toronto', 'avg_suit_price_eur': 0.0}
+{'name': 'Carpe Diem Men', 'city': 'toronto', 'avg_suit_price_eur': 833.3333333333333}
+{'name': 'The Coop Ink', 'city': 'toronto', 'avg_suit_price_eur': 1018.5185185185185}
+{'name': 'Soren Custom', 'city': 'toronto', 'avg_suit_price_eur': 1018.5185185185185}
+{'name': "Prince Men's Wear", 'city': 'toronto', 'avg_suit_price_eur': 342.59259259259255}
+{'name': "Sydney's", 'city': 'toronto', 'avg_suit_price_eur': 1018.5185185185185}

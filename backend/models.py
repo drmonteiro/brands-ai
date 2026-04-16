@@ -206,6 +206,7 @@ class BrandLead(BaseModel):
     # Compatibility field for DB/Frontend mismatch
     avg_suit_price_eur: Optional[float] = Field(default=None)
     fit_score: int = Field(default=0, alias="fitScore")
+    price_note: Optional[str] = Field(default=None, alias="priceNote")
     material_composition: Optional[List[str]] = Field(default_factory=list, alias="materialComposition")
 
     @field_validator('verification_log', 'clothing_types', 'store_locations', 'material_composition', mode='before')

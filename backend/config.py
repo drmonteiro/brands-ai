@@ -36,6 +36,11 @@ class Config:
     LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY")
     LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "confecos-lanca")
     
+    # Twilio WhatsApp
+    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+    TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "+14155238886")
+    
     # Database
     SYNC_DATABASE_URL = os.getenv("SYNC_DATABASE_URL")
     

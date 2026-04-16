@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proposta de Prestação de Serviços — Confeções Lança — 1 Dezembro 2025</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #efefef;
+      color: #1a1a1a;
+      font-size: 13.5px;
+      line-height: 1.7;
+    }
+
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      background: #ffffff;
+      margin: 0 auto 32px;
+      padding: 18mm 18mm 22mm;
+      position: relative;
+    }
+
+    /* ── COVER ── */
+    .cover {
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .cover-top {
+      background: #111;
+      padding: 18mm 18mm 14mm;
+      flex-shrink: 0;
+    }
+
+    .cover-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: #b8973e;
+      margin-bottom: 28px;
+    }
+
+    .cover-title {
+      font-family: 'Lora', serif;
+      font-size: 36px;
+      font-weight: 600;
+      color: #ffffff;
+      line-height: 1.2;
+      margin-bottom: 10px;
+    }
+
+    .cover-title em {
+      color: #c9a84c;
+      font-style: normal;
+    }
+
+    .cover-sub {
+      font-size: 13px;
+      color: rgba(255,255,255,0.45);
+      margin-top: 6px;
+      font-style: italic;
+    }
+
+    .cover-body {
+      background: #fff;
+      padding: 14mm 18mm 18mm;
+      flex: 1;
+    }
+
+    .parties {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 32px;
+    }
+
+    .party {
+      padding: 18px 20px;
+    }
+
+    .party + .party {
+      border-left: 1px solid #ddd;
+    }
+
+    .party-role {
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #b8973e;
+      margin-bottom: 8px;
+    }
+
+    .party-name {
+      font-weight: 600;
+      font-size: 14px;
+      color: #111;
+      margin-bottom: 4px;
+    }
+
+    .party-detail {
+      font-size: 12px;
+      color: #777;
+      line-height: 1.7;
+    }
+
+    .cover-meta {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+
+    .cover-meta-item {
+      border-top: 2px solid #111;
+      padding-top: 10px;
+    }
+
+    .cover-meta-item .label {
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 4px;
+    }
+
+    .cover-meta-item .value {
+      font-size: 13.5px;
+      font-weight: 500;
+      color: #111;
+    }
+
+    .cover-price-banner {
+      background: #111;
+      border-radius: 4px;
+      padding: 22px 28px;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .cover-price-banner .plabel {
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.5);
+    }
+
+    .cover-price-banner .pamount {
+      font-family: 'Lora', serif;
+      font-size: 34px;
+      font-weight: 600;
+      color: #c9a84c;
+    }
+
+    .cover-price-banner .psuffix {
+      font-size: 13px;
+      color: rgba(255,255,255,0.35);
+    }
+
+    .cover-note {
+      margin-top: 16px;
+      font-size: 11px;
+      color: #aaa;
+      font-style: italic;
+    }
+
+    /* ── INNER PAGES ── */
+    .page-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 12px;
+      margin-bottom: 32px;
+    }
+
+    .page-head-left {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #111;
+    }
+
+    .page-head-right {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #aaa;
+    }
+
+    h2 {
+      font-family: 'Lora', serif;
+      font-size: 22px;
+      font-weight: 600;
+      color: #111;
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+
+    h3 {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #111;
+      margin-bottom: 6px;
+      margin-top: 20px;
+    }
+
+    p {
+      color: #444;
+      margin-bottom: 12px;
+    }
+
+    .eyebrow {
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: #b8973e;
+      margin-bottom: 8px;
+    }
+
+    .section {
+      margin-bottom: 36px;
+    }
+
+    /* ── CALLOUT ── */
+    .callout {
+      border-left: 3px solid #c9a84c;
+      padding: 14px 18px;
+      background: #fdf8ee;
+      margin: 18px 0;
+      font-size: 13px;
+      color: #333;
+      line-height: 1.7;
+    }
+
+    /* ── SERVICE LIST ── */
+    .service {
+      border-bottom: 1px solid #eee;
+      padding: 16px 0;
+    }
+
+    .service:last-child {
+      border-bottom: none;
+    }
+
+    .service-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 5px;
+      gap: 16px;
+    }
+
+    .service-name {
+      font-weight: 600;
+      font-size: 13.5px;
+      color: #111;
+    }
+
+    .service-price {
+      font-size: 13px;
+      font-weight: 600;
+      color: #111;
+      white-space: nowrap;
+    }
+
+    .service-desc {
+      font-size: 12.5px;
+      color: #666;
+      line-height: 1.65;
+      margin-bottom: 0;
+    }
+
+    /* ── BUDGET TABLE ── */
+    .budget-block {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 20px 0;
+    }
+
+    .budget-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 13px 18px;
+      border-bottom: 1px solid #f0f0f0;
+      gap: 16px;
+    }
+
+    .budget-row:last-child {
+      border-bottom: none;
+    }
+
+    .budget-row.header {
+      background: #111;
+      padding: 10px 18px;
+    }
+
+    .budget-row.header span {
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #c9a84c;
+    }
+
+    .budget-row.total {
+      background: #f8f5ee;
+      border-top: 2px solid #111;
+    }
+
+    .budget-row-left {
+      flex: 1;
+    }
+
+    .budget-item-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: #111;
+      display: block;
+    }
+
+    .budget-item-desc {
+      font-size: 11.5px;
+      color: #888;
+      margin-top: 2px;
+      margin-bottom: 0;
+      display: block;
+    }
+
+    .budget-item-val {
+      font-size: 13px;
+      font-weight: 600;
+      color: #111;
+      white-space: nowrap;
+      padding-top: 2px;
+    }
+
+    .total .budget-item-name {
+      font-size: 14px;
+    }
+
+    .total .budget-item-val {
+      font-family: 'Lora', serif;
+      font-size: 20px;
+      color: #111;
+    }
+
+    /* ── CONDITIONS ── */
+    .cond-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .cond-box {
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 14px 16px;
+    }
+
+    .cond-box .cond-label {
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #aaa;
+      margin-bottom: 8px;
+    }
+
+    .cond-box ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .cond-box ul li {
+      font-size: 12.5px;
+      color: #444;
+      padding: 4px 0;
+      border-bottom: 1px solid #f5f5f5;
+      display: flex;
+      gap: 8px;
+    }
+
+    .cond-box ul li:last-child {
+      border-bottom: none;
+    }
+
+    .cond-box ul li::before {
+      content: '—';
+      color: #c9a84c;
+      flex-shrink: 0;
+    }
+
+    /* ── TIMELINE ── */
+    .tl-item {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .tl-marker {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .tl-dot {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #111;
+      color: #c9a84c;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .tl-line {
+      flex: 1;
+      width: 1px;
+      background: #ddd;
+      margin-top: 4px;
+    }
+
+    .tl-content {
+      padding-top: 5px;
+      padding-bottom: 8px;
+    }
+
+    .tl-content h4 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #111;
+      margin-bottom: 3px;
+    }
+
+    .tl-content p {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 0;
+    }
+
+    .tl-period {
+      font-size: 11px;
+      color: #b8973e;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+
+    /* ── CLOSING ── */
+    .closing {
+      background: #111;
+      border-radius: 4px;
+      padding: 24px 26px;
+      margin-top: 28px;
+    }
+
+    .closing h2 {
+      color: #fff;
+      font-size: 19px;
+      margin-bottom: 8px;
+    }
+
+    .closing p {
+      color: rgba(255,255,255,0.55);
+      font-size: 12.5px;
+      margin-bottom: 20px;
+    }
+
+    .closing-info {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .closing-info-item .ci-label {
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #c9a84c;
+      margin-bottom: 3px;
+    }
+
+    .closing-info-item .ci-val {
+      font-size: 13px;
+      color: rgba(255,255,255,0.8);
+    }
+
+    /* ── FOOTER ── */
+    .page-foot {
+      position: absolute;
+      bottom: 14mm;
+      left: 18mm;
+      right: 18mm;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid #eee;
+      padding-top: 10px;
+    }
+
+    .page-foot span {
+      font-size: 10px;
+      color: #bbb;
+    }
+
+    .page-foot .pnum {
+      font-weight: 600;
+      color: #999;
+    }
+
+    /* ── SIGNATURE BLOCK ── */
+    .sig-block {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      margin-top: 40px;
+    }
+
+    .sig-box {
+      border-top: 1px solid #ccc;
+      padding-top: 10px;
+    }
+
+    .sig-box .sig-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #aaa;
+      margin-bottom: 4px;
+    }
+
+    .sig-box .sig-name {
+      font-size: 12.5px;
+      color: #333;
+    }
+
+    .sig-line {
+      height: 36px;
+      border-bottom: 1px solid #ddd;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════ CAPA ══════════ -->
+<div class="page cover">
+  <div class="cover-top">
+    <div class="cover-label">Proposta de Prestação de Serviços</div>
+    <div class="cover-title">Plataforma <em>Brands AI</em><br>para a Confeções Lança</div>
+    <div class="cover-sub">Desenvolvimento de sistema de prospeção comercial com inteligência artificial</div>
+  </div>
+
+  <div class="cover-body">
+    <div class="parties">
+      <div class="party">
+        <div class="party-role">Prestador de Serviços</div>
+        <div class="party-name">Daniel Ribeiro Monteiro</div>
+        <div class="party-detail">
+          NIF: [O SEU NIF]<br>
+          [A SUA MORADA]<br>
+          [CÓDIGO POSTAL] [CIDADE]<br>
+          [SEU EMAIL]<br>
+          [SEU TELEMÓVEL]
+        </div>
+      </div>
+      <div class="party">
+        <div class="party-role">Cliente</div>
+        <div class="party-name">Confeções Lança, S.A.</div>
+        <div class="party-detail">
+          NIF: [NIF DA LANÇA]<br>
+          [MORADA DA LANÇA]<br>
+          Covilhã, Portugal
+        </div>
+      </div>
+    </div>
+
+    <div class="cover-meta">
+      <div class="cover-meta-item">
+        <div class="label">Referência</div>
+        <div class="value">DRM-2026-001</div>
+      </div>
+      <div class="cover-meta-item">
+        <div class="label">Data</div>
+        <div class="value">1 de Dezembro de 2025</div>
+      </div>
+      <div class="cover-meta-item">
+        <div class="label">Validade</div>
+        <div class="value">30 dias</div>
+      </div>
+    </div>
+
+    <div class="cover-price-banner">
+      <span class="plabel">Valor Total da Proposta</span>
+      <span class="pamount">48.000 €</span>
+      <span class="psuffix">+ IVA à taxa legal em vigor</span>
+    </div>
+
+    <p class="cover-note">Documento confidencial. Elaborado exclusivamente para a Confeções Lança, S.A.</p>
+  </div>
+</div>
+
+<!-- ══════════ PÁG 2 — CONTEXTO ══════════ -->
+<div class="page">
+  <div class="page-head">
+    <div class="page-head-left">Daniel Ribeiro Monteiro · Proposta DRM-2026-001</div>
+    <div class="page-head-right">Contexto</div>
+  </div>
+
+  <div class="section">
+    <div class="eyebrow">Ponto de partida</div>
+    <h2>O que está em cima da mesa</h2>
+    <p>
+      A Confeções Lança tem mais de 50 anos de manufactura de vestuário masculino premium e uma capacidade produtiva instalada em Covilhã que justifica uma presença muito mais forte em mercados internacionais — Estados Unidos, Reino Unido, Europa Central.
+    </p>
+    <p>
+      O problema é que chegar aos parceiros certos leva tempo. Encontrar uma boutique independente em Boston ou Chicago que venda fatos acima dos €500, com menos de 20 lojas e abertura para trabalhar com um fabricante europeu — isso envolve pesquisa, viagens, ou o recurso a agências cujas comissões não se justificam numa fase inicial.
+    </p>
+    <div class="callout">
+      O que proponho é substituir esse processo por uma plataforma que faz esse trabalho automaticamente, a uma fração do custo, e que entrega à equipa comercial da Lança uma lista de prospects qualificados, prontos para contactar.
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="eyebrow">A solução</div>
+    <h2>Brands AI — o que é e como funciona</h2>
+    <p>
+      A plataforma Brands AI é uma aplicação web desenvolvida à medida para a Confeções Lança. A equipa comercial entra com o nome de uma cidade — "Austin", "Portland", "Londres" — e o sistema trata do resto: pesquisa, analisa, filtra e apresenta os melhores prospects numa interface simples.
+    </p>
+    <p>O processo decorre em cinco passos que acontecem automaticamente:</p>
+
+    <h3>1. Pesquisa web inteligente</h3>
+    <p>O sistema utiliza o motor Tavily — concebido especificamente para trabalhar com modelos de linguagem — para localizar todas as boutiques e marcas de menswear relevantes na cidade escolhida.</p>
+
+    <h3>2. Análise e qualificação</h3>
+    <p>O modelo GPT-4o (Azure OpenAI) visita os websites encontrados, lê as páginas de produto, identifica e calcula os preços médios a partir dos artigos listados, e verifica se a marca opera de forma independente. Quanto mais alinhada com o perfil da Lança, mais se destaca na lista.</p>
+
+    <h3>3. Curadoria humana</h3>
+    <p>Os resultados chegam à equipa num dashboard claro. São os comerciais da Lança que decidem quem contactar — o sistema nunca age por conta própria nesta fase.</p>
+
+    <h3>4. Envio de proposta de parceria</h3>
+    <p>Com um clique, é gerado e enviado um email de prospeção profissional, adaptado ao perfil específico daquela marca. O email sai do endereço da Lança e apresenta os pontos fortes do fabricante de Covilhã de forma relevante para aquele interlocutor.</p>
+
+    <h3>5. Consultor IA integrado</h3>
+    <p>Para além da prospeção, a plataforma inclui um assistente conversacional que permite à equipa fazer perguntas sobre os prospects guardados em linguagem natural — "quais as marcas em Nova Iorque com margens mais altas?" ou "prepara-me um argumento de venda para esta boutique".</p>
+  </div>
+
+  <div class="page-foot">
+    <span>Confidencial · Daniel Ribeiro Monteiro para Confeções Lança</span>
+    <span class="pnum">02</span>
+  </div>
+</div>
+
+<!-- ══════════ PÁG 3 — SERVIÇOS ══════════ -->
+<div class="page">
+  <div class="page-head">
+    <div class="page-head-left">Daniel Ribeiro Monteiro · Proposta DRM-2026-001</div>
+    <div class="page-head-right">Serviços incluídos</div>
+  </div>
+
+  <div class="section">
+    <div class="eyebrow">O que está incluído</div>
+    <h2>Âmbito do trabalho</h2>
+    <p>Esta proposta cobre o desenvolvimento completo da plataforma, desde a arquitetura até ao lançamento, incluindo formação da equipa e suporte durante o primeiro ano.</p>
+
+    <div class="service">
+      <div class="service-header">
+        <span class="service-name">Motor de prospeção com IA (backend)</span>
+      </div>
+      <p class="service-desc">Desenvolvimento do agente de prospeção em Python com FastAPI, integrado com a API Tavily para pesquisa web e o GPT-4o da Azure OpenAI para análise. Inclui toda a lógica de filtragem por preço, número de lojas e identificação de marcas independentes, bem como o sistema de scoring que ordena os prospects por relevância.</p>
+    </div>
+
+    <div class="service">
+      <div class="service-header">
+        <span class="service-name">Interface web (frontend)</span>
+      </div>
+      <p class="service-desc">Aplicação web em Next.js 15 com TypeScript, com o design alinhado à identidade visual da Lança. Inclui o dashboard de pesquisa por cidade, visualização de resultados em tempo real, painel de aprovação de prospects e histórico de cidades pesquisadas.</p>
+    </div>
+
+    <div class="service">
+      <div class="service-header">
+        <span class="service-name">Sistema de outreach por email</span>
+      </div>
+      <p class="service-desc">Integração com a API Resend para envio de emails de prospeção. Cada mensagem é gerada automaticamente pela IA com base no perfil da marca contactada, com possibilidade de revisão antes do envio. Capacidade de até 3.000 emails/mês sem custo adicional.</p>
+    </div>
+
+    <div class="service">
+      <div class="service-header">
+        <span class="service-name">Consultor IA (chat sobre prospects)</span>
+      </div>
+      <p class="service-desc">Assistente conversacional integrado na plataforma, assente em RAG (Retrieval-Augmented Generation) sobre a base de dados de prospects guardados. Permite à equipa comercial obter insights, comparar marcas e preparar argumentários de venda sem sair da aplicação.</p>
+    </div>
+
+    <div class="service">
+      <div class="service-header">
+        <span class="service-name">Alojamento em cloud (Azure)</span>
+      </div>
+      <p class="service-desc">Configuração e publicação da plataforma em Azure Static Web Apps (frontend) e Azure App Service (backend), com pipeline de deployment automático via GitHub Actions. Inclui configuração de domínio, HTTPS e ambientes separados de teste e produção.</p>
+    </div>
+
+    <div class="service">
+      <div class="service-header">
+        <span class="service-name">Testes e controlo de qualidade</span>
+      </div>
+      <p class="service-desc">Testes de integração de ponta a ponta, revisão de segurança e testes de carga antes do lançamento. Validação com utilizadores reais da equipa Lança.</p>
+    </div>
+
+    <div class="service">
+      <div class="service-header">
+        <span class="service-name">Formação e suporte (12 meses)</span>
+      </div>
+      <p class="service-desc">Sessão de formação inicial para a equipa comercial (presencial ou remota, até 4 horas). Suporte técnico durante 12 meses após o lançamento: correção de erros, atualizações de compatibilidade de APIs e esclarecimento de dúvidas operacionais.</p>
+    </div>
+  </div>
+
+  <div class="page-foot">
+    <span>Confidencial · Daniel Ribeiro Monteiro para Confeções Lança</span>
+    <span class="pnum">03</span>
+  </div>
+</div>
+
+<!-- ══════════ PÁG 4 — ORÇAMENTO ══════════ -->
+<div class="page">
+  <div class="page-head">
+    <div class="page-head-left">Daniel Ribeiro Monteiro · Proposta DRM-2026-001</div>
+    <div class="page-head-right">Orçamento</div>
+  </div>
+
+  <div class="section">
+    <div class="eyebrow">Investimento</div>
+    <h2>Detalhe de valores</h2>
+
+    <div class="budget-block">
+      <div class="budget-row header">
+        <span>Componente</span>
+      </div>
+      <div class="budget-row">
+        <div class="budget-row-left">
+          <span class="budget-item-name">Motor de prospeção com IA (backend)</span>
+          <span class="budget-item-desc">Agente LangGraph, integração Tavily + Azure OpenAI GPT-4o, lógica de filtragem e scoring</span>
+        </div>
+      </div>
+      <div class="budget-row">
+        <div class="budget-row-left">
+          <span class="budget-item-name">Interface web (frontend)</span>
+          <span class="budget-item-desc">Next.js 15, dashboard, visualização em tempo real, painel de aprovação</span>
+        </div>
+      </div>
+      <div class="budget-row">
+        <div class="budget-row-left">
+          <span class="budget-item-name">Sistema de outreach por email</span>
+          <span class="budget-item-desc">Integração Resend, templates gerados por IA, tracking de envios</span>
+        </div>
+      </div>
+      <div class="budget-row">
+        <div class="budget-row-left">
+          <span class="budget-item-name">Consultor IA (chat RAG)</span>
+          <span class="budget-item-desc">Motor conversacional sobre dados de prospects, base vetorial Qdrant</span>
+        </div>
+      </div>
+      <div class="budget-row">
+        <div class="budget-row-left">
+          <span class="budget-item-name">Alojamento e deployment (Azure)</span>
+          <span class="budget-item-desc">CI/CD GitHub Actions, Static Web Apps, domínio e HTTPS</span>
+        </div>
+      </div>
+      <div class="budget-row">
+        <div class="budget-row-left">
+          <span class="budget-item-name">Testes e controlo de qualidade</span>
+          <span class="budget-item-desc">Testes end-to-end, segurança, testes de carga e validação com utilizadores</span>
+        </div>
+      </div>
+      <div class="budget-row">
+        <div class="budget-row-left">
+          <span class="budget-item-name">Documentação técnica</span>
+          <span class="budget-item-desc">Manual de utilizador, documentação de API e guia de operações</span>
+        </div>
+      </div>
+      <div class="budget-row">
+        <div class="budget-row-left">
+          <span class="budget-item-name">Formação e suporte (12 meses)</span>
+          <span class="budget-item-desc">Formação inicial (até 4h) + suporte técnico durante um ano após o lançamento</span>
+        </div>
+      </div>
+      <div class="budget-row total">
+        <div class="budget-row-left">
+          <span class="budget-item-name">Valor total do projeto</span>
+          <span class="budget-item-desc">Acresce IVA à taxa legal em vigor em Portugal</span>
+        </div>
+        <span class="budget-item-val">48.000 €</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="eyebrow">Condições</div>
+    <h2>Pagamento e exclusões</h2>
+
+    <div class="cond-grid">
+      <div class="cond-box">
+        <div class="cond-label">Faseamento do pagamento</div>
+        <ul>
+          <li>40% na assinatura do contrato</li>
+          <li>40% na entrega da versão beta</li>
+          <li>20% no lançamento em produção</li>
+        </ul>
+      </div>
+      <div class="cond-box">
+        <div class="cond-label">O que não está incluído</div>
+        <ul>
+          <li>Custos de APIs terceiras (Tavily, Resend)</li>
+          <li>Infraestrutura cloud Azure (custo mensal)</li>
+          <li>Tokens Azure OpenAI (pay-as-you-go)</li>
+          <li>Alterações fora do âmbito acordado</li>
+        </ul>
+      </div>
+    </div>
+
+    <p style="margin-top:16px; font-size:12px; color:#888;">
+      Os custos operacionais estimados após o lançamento rondam os €150–300/mês dependendo do volume de pesquisas realizadas. O custo por lead qualificado gerado pela plataforma é de aproximadamente €0,15.
+    </p>
+  </div>
+
+  <div class="page-foot">
+    <span>Confidencial · Daniel Ribeiro Monteiro para Confeções Lança</span>
+    <span class="pnum">04</span>
+  </div>
+</div>
+
+<!-- ══════════ PÁG 5 — CRONOGRAMA + FECHO ══════════ -->
+<div class="page">
+  <div class="page-head">
+    <div class="page-head-left">Daniel Ribeiro Monteiro · Proposta DRM-2026-001</div>
+    <div class="page-head-right">Cronograma &amp; Próximos Passos</div>
+  </div>
+
+  <div class="section">
+    <div class="eyebrow">Plano de trabalho</div>
+    <h2>Cronograma estimado</h2>
+    <p>O projeto tem uma duração estimada de 16 semanas (4 meses) a contar da data de assinatura do contrato.</p>
+
+    <div style="margin-top:20px;">
+      <div class="tl-item">
+        <div class="tl-marker">
+          <div class="tl-dot">F1</div>
+          <div class="tl-line"></div>
+        </div>
+        <div class="tl-content">
+          <div class="tl-period">Semanas 1–3</div>
+          <h4>Fundação e arquitetura</h4>
+          <p>Setup da infraestrutura Azure, configuração dos ambientes de trabalho, integração inicial com as APIs (Tavily, Azure OpenAI, Resend) e validação do fluxo base com dados reais. Reunião de kick-off com a equipa Lança.</p>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-marker">
+          <div class="tl-dot">F2</div>
+          <div class="tl-line"></div>
+        </div>
+        <div class="tl-content">
+          <div class="tl-period">Semanas 4–9</div>
+          <h4>Desenvolvimento do motor de IA e backend</h4>
+          <p>Construção completa do agente de prospeção, lógica de filtragem, sistema de scoring, consultor IA (RAG) e API FastAPI com streaming em tempo real.</p>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-marker">
+          <div class="tl-dot">F3</div>
+          <div class="tl-line"></div>
+        </div>
+        <div class="tl-content">
+          <div class="tl-period">Semanas 10–13</div>
+          <h4>Interface web e integração</h4>
+          <p>Desenvolvimento do frontend em Next.js, integração com o backend, sistema de outreach por email e testes de integração end-to-end com utilizadores da equipa Lança.</p>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-marker">
+          <div class="tl-dot">F4</div>
+        </div>
+        <div class="tl-content">
+          <div class="tl-period">Semanas 14–16</div>
+          <h4>Testes, formação e lançamento</h4>
+          <p>QA final, revisão de segurança, sessão de formação para a equipa comercial, entrega da documentação técnica e lançamento em produção. Início do suporte de 12 meses.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="eyebrow">Futuro</div>
+    <h2>O que pode vir a seguir</h2>
+    <p>
+      Após o lançamento, há já identificadas algumas extensões naturais da plataforma que podem ser desenvolvidas em fases posteriores: expansão para mercados europeus (Londres, Paris, Milão), integração com Instagram e LinkedIn para qualificação por audiência, ligação a um CRM e sequências de follow-up automático por email.
+    </p>
+  </div>
+
+  <div class="closing">
+    <h2>Próximos passos</h2>
+    <p>
+      Para avançar, basta confirmar a aceitação desta proposta. Preparo de imediato o contrato de prestação de serviços e agendamos uma reunião de kick-off para arrancarmos com a Fase 1.
+    </p>
+    <div class="closing-info">
+      <div class="closing-info-item">
+        <div class="ci-label">Prestador de Serviços</div>
+        <div class="ci-val">Daniel Ribeiro Monteiro</div>
+      </div>
+      <div class="closing-info-item">
+        <div class="ci-label">Contacto</div>
+        <div class="ci-val">[SEU EMAIL]</div>
+      </div>
+      <div class="closing-info-item">
+        <div class="ci-label">Referência da proposta</div>
+        <div class="ci-val">DRM-2026-001</div>
+      </div>
+      <div class="closing-info-item">
+        <div class="ci-label">Validade</div>
+        <div class="ci-val">31 de Dezembro de 2025</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sig-block">
+    <div class="sig-box">
+      <div class="sig-line"></div>
+      <div class="sig-label">Prestador de Serviços</div>
+      <div class="sig-name">Daniel Ribeiro Monteiro<br><span style="color:#aaa; font-size:11px;">NIF: [O SEU NIF]</span></div>
+    </div>
+    <div class="sig-box">
+      <div class="sig-line"></div>
+      <div class="sig-label">Cliente</div>
+      <div class="sig-name">Confeções Lança, S.A.<br><span style="color:#aaa; font-size:11px;">Data: ___/___/______</span></div>
+    </div>
+  </div>
+
+  <div class="page-foot">
+    <span>Confidencial · Daniel Ribeiro Monteiro para Confeções Lança</span>
+    <span class="pnum">05</span>
+  </div>
+</div>
+
+</body>
+</html>

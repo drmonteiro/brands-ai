@@ -152,8 +152,11 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
     ? 'Médio' 
     : 'Baixo';
 
+  const priceNote = brand.price_note || (brand as any).priceNote || "";
+
   // Format price
   const formatPrice = () => {
+    if (priceNote) return priceNote;
     if (priceEUR && priceEUR > 0) return `${Math.round(priceEUR)}€`;
     if (priceUSD && priceUSD > 0) return `${Math.round(priceUSD)}$`;
     return "N/A";

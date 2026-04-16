@@ -201,10 +201,35 @@ CAPACIDADES ESPECIAIS:
 # CHAT ENDPOINT
 # ============================================================================
 
+@router.get("/history")
+async def get_chat_history(limit: int = 50):
+    """Retrieve chat history from PostgreSQL."""
+    try:
+        pool = await PostgresManager.get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT role, content, city_context, created_at 
+                FROM chat_messages 
+                ORDER BY created_at ASC 
+                LIMIT $1
+            """, limit)
+            return {"history": [dict(row) for row in rows]}
+    except Exception as e:
+        print(f"[CHAT HISTORY ERROR] {e}")
+        return {"history": []}
+
 @router.post("")
 async def process_chat(request: ChatRequest):
     try:
-        # ── 1. Fetch prospect data (RAG retrieval) ──
+        # ── 1. Save User Message to DB ──
+        pool = await PostgresManager.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO chat_messages (role, content, city_context) VALUES ($1, $2, $3)",
+                "user", request.message, request.city
+            )
+
+        # ── 2. Fetch prospect data (RAG retrieval) ──
         if request.city and request.city.strip().lower() not in ("todas", "global", "all", ""):
             city = request.city.strip()
             prospects_data = await get_prospects_by_city(city, limit=50)
@@ -213,15 +238,16 @@ async def process_chat(request: ChatRequest):
             prospects_data = await get_all_prospects(limit=100)
             context_label = "Todas as marcas prospetadas (global)"
 
-        # ── 2. Build rich context ──
+        # ... (rest of the logic remains similar but we load history from DB if requested)
+        # For simplicity, we keep the history from request but we'll prioritize DB in the next frontend update
+        
         prospect_context = build_prospect_context(prospects_data, context_label)
         client_context = build_client_context()
         
-        # Stats context
         try:
             stats = await get_dashboard_stats()
-            cities = await get_all_searched_cities()
-            city_names = [c["city"] for c in cities] if cities else []
+            cities_data = await get_all_searched_cities()
+            city_names = [c["city"] for c in cities_data] if cities_data else []
             stats_context = (
                 f"Total de marcas na BD: {stats.get('total_prospects', 0)}\n"
                 f"Cidades pesquisadas: {', '.join(city_names) if city_names else 'Nenhuma'}\n"
@@ -230,31 +256,34 @@ async def process_chat(request: ChatRequest):
         except Exception:
             stats_context = "Estatísticas indisponíveis."
 
-        # ── 3. Compose system prompt ──
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             prospect_context=prospect_context,
             client_context=client_context,
             stats_context=stats_context
         )
 
-        # ── 4. Build message chain ──
         messages = [SystemMessage(content=system_prompt)]
 
-        # Add conversation history (properly mapped to LangChain message types)
-        for msg in request.history[-10:]:  # Keep last 10 messages to avoid token overflow
+        for msg in request.history[-10:]:
             if msg.role == "user":
                 messages.append(HumanMessage(content=msg.content))
             elif msg.role == "assistant":
                 messages.append(AIMessage(content=msg.content))
 
-        # Add current user message
         messages.append(HumanMessage(content=request.message))
 
-        # ── 5. Generate response (using FULL model for quality) ──
-        llm = get_llm(fast=False)  # GPT-5.1 full — quality over speed for chat
+        llm = get_llm(fast=False)
         response = llm.invoke(messages)
+        ai_content = response.content
 
-        return {"response": response.content}
+        # ── 3. Save Assistant Message to DB ──
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO chat_messages (role, content, city_context) VALUES ($1, $2, $3)",
+                "assistant", ai_content, request.city
+            )
+
+        return {"response": ai_content}
 
     except Exception as e:
         print(f"[CHAT ERROR] {e}")

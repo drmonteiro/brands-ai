@@ -32,6 +32,7 @@ export interface BrandLead {
   similarity_explanation?: string;
   status?: string;
   notes?: string;
+  price_note?: string;
   discovered_at?: string;
   updated_at?: string;
   contact_name?: string;

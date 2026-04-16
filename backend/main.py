@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from services.database import init_database
 from services.postgres import PostgresManager
-from routers import prospects, cities, analytics, workflow, email, export, chat
+from routers import prospects, cities, analytics, workflow, email, export, chat, whatsapp
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -46,6 +46,7 @@ app.include_router(analytics.router)
 app.include_router(email.router)
 app.include_router(export.router)
 app.include_router(chat.router)
+app.include_router(whatsapp.router)
 
 @app.get("/")
 async def root():
