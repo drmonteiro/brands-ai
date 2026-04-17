@@ -172,6 +172,18 @@ async def get_chat_history(limit: int = 50):
         print(f"[CHAT HISTORY ERROR] {e}")
         return {"history": []}
 
+@router.delete("/history")
+async def clear_chat_history():
+    """Delete all chat history from PostgreSQL."""
+    try:
+        pool = await PostgresManager.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM chat_messages")
+            return {"status": "success", "message": "Chat history cleared"}
+    except Exception as e:
+        print(f"[CHAT CLEAR ERROR] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("")
 async def process_chat(request: ChatRequest):
     try:

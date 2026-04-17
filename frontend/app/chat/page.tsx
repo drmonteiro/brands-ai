@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Loader2, Info, Sparkles, RotateCcw } from "lucide-react";
+import { Send, Bot, User, Loader2, Info, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -144,14 +144,27 @@ export default function ChatDashboard() {
         }
     };
 
-    const handleReset = () => {
-        setMessages([
-            {
-                role: "assistant",
-                content: "Conversa reiniciada. Como posso ajudar?",
-                timestamp: new Date(),
-            },
-        ]);
+    const handleReset = async () => {
+        if (!confirm("Tens a certeza que queres eliminar todo o histórico da conversa?")) return;
+        
+        try {
+            const res = await fetch(`${API_URL}/api/chat/history`, { method: "DELETE" });
+            if (res.ok) {
+                setMessages([
+                    {
+                        role: "assistant",
+                        content: "Conversa eliminada. Como posso ajudar?",
+                        timestamp: new Date(),
+                    },
+                ]);
+                toast.success("Histórico eliminado");
+            } else {
+                toast.error("Erro ao eliminar histórico");
+            }
+        } catch (e) {
+            console.error("Failed to clear chat history:", e);
+            toast.error("Erro de ligação ao servidor");
+        }
     };
 
     // Simple markdown-like rendering (bold, bullets, links)
@@ -214,10 +227,10 @@ export default function ChatDashboard() {
                     {/* Reset Button */}
                     <button
                         onClick={handleReset}
-                        className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
-                        title="Reiniciar conversa"
+                        className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                        title="Eliminar histórico da conversa"
                     >
-                        <RotateCcw size={16} />
+                        <Trash2 size={16} />
                     </button>
                 </div>
             </div>
