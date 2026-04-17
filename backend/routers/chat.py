@@ -198,16 +198,13 @@ async def process_chat(request: ChatRequest):
 
         # ── 2. Fetch prospect data (RAG retrieval) ──
         if request.city and request.city.strip().lower() not in ("todas", "global", "all", ""):
-            city = request.city.strip()
-            prospects_data = await get_prospects_by_city(city, limit=50)
-            context_label = f"Marcas prospetadas em {city}"
+            city_name = request.city.strip()
+            prospects_data = await get_prospects_by_city(city_name, limit=50)
+            context_label = f"Marcas prospetadas em {city_name}"
         else:
             prospects_data = await get_all_prospects(limit=100)
             context_label = "Todas as marcas prospetadas (global)"
 
-        # ... (rest of the logic remains similar but we load history from DB if requested)
-        # For simplicity, we keep the history from request but we'll prioritize DB in the next frontend update
-        
         prospect_context = build_prospect_context(prospects_data, context_label)
         client_context = build_client_context()
         
@@ -223,7 +220,7 @@ async def process_chat(request: ChatRequest):
         except Exception:
             stats_context = "Estatísticas indisponíveis."
 
-        # 3. Dynamic System Prompt based on Language
+        # ── 3. Dynamic System Prompt based on Language ──
         if request.language == "en":
             lang_rules = """
             - ALWAYS respond in English.
@@ -238,11 +235,11 @@ async def process_chat(request: ChatRequest):
             - RESPONDE SEMPRE em Português Europeu (PT-PT).
             - Estilo: Direto, analítico e profissional.
             - Estrutura: Usa Markdown limpo, **negritos** para nomes e listas com pontos •.
-            - Não uses caracteres estranhos ou barras decorativas longas.
             """
             mission = "Tu és o **Consultor IA da Confeções Lança**, um assistente de inteligência comercial especializado em alfaiataria premium."
             context_label_prefix = "Dados de prospecção"
 
+        # Construct full prompt directly to avoid .format() issues
         system_prompt = f"""
 {mission}
 
@@ -254,15 +251,15 @@ CONTEXTO LANÇA:
 - Fatos (500€-2300€), Casacos (300€-1380€), Calças (200€-920€).
 - Mercado alvo: Boutiques premium (1-20 lojas).
 
-{{client_context}}
+{client_context}
 
 ---
 {context_label_prefix}:
-{{prospect_context}}
+{prospect_context}
 
 ---
 ESTATÍSTICAS GERAIS:
-{{stats_context}}
+{stats_context}
 
 ---
 REGRAS DE COMUNICAÇÃO:
@@ -270,18 +267,13 @@ REGRAS DE COMUNICAÇÃO:
 5. Se mencionares marcas, estrutura assim:
    • **NOME** | Preço: X€ | Score: X/100 | [Website]
 6. Sê conciso. O utilizador quer informação rápida e acionável.
-7. Se a informação sobre uma marca específica **não estiver na nossa BD**, não digas apenas "não disponível". Usa o teu conhecimento interno para descrever a marca, o seu posicionamento e como a Lança a poderia abordar, deixando claro que esses dados são baseados no teu conhecimento geral e não na prospecção recente.
-8. Assume um papel proativo: o teu objetivo é ajudar o comercial a fechar negócio, por isso tenta sempre dar uma resposta útil e estratégica.
-9. Mantém o rigor técnico, mas sê criativo nas sugestões de abordagem.
+7. Se a informação sobre uma marca específica não estiver na nossa BD, usa o teu conhecimento interno para descrever a marca e posicionamento.
+8. Assume um papel proativo e estratégico para ajudar o comercial.
 """
-        final_system_prompt = system_prompt.format(
-            prospect_context=prospect_context,
-            client_context=client_context,
-            stats_context=stats_context
-        )
 
-        messages = [SystemMessage(content=final_system_prompt)]
+        messages = [SystemMessage(content=system_prompt)]
 
+        # Add history
         for msg in request.history[-10:]:
             if msg.role == "user":
                 messages.append(HumanMessage(content=msg.content))
@@ -294,7 +286,7 @@ REGRAS DE COMUNICAÇÃO:
         response = llm.invoke(messages)
         ai_content = response.content
 
-        # ── 3. Save Assistant Message to DB ──
+        # ── 4. Save Assistant Message to DB ──
         async with pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO chat_messages (role, content, city_context) VALUES ($1, $2, $3)",
