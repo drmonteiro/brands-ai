@@ -149,8 +149,9 @@ async def save_prospect(
                 material_composition, sustainability_certs, made_to_measure,
                 heritage_brand, quality_score, similarity_score, location_score, location_quality,
                 final_score, fit_score, most_similar_client, similarity_explanation, status, discovered_at,
-                contact_name, contact_role, contact_email, contact_phone, contact_linkedin, price_note
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)
+                contact_name, contact_role, contact_email, contact_phone, contact_linkedin, price_note,
+                headquarters_address
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
             ON CONFLICT (id) DO UPDATE SET
                 avg_suit_price_eur = EXCLUDED.avg_suit_price_eur,
                 final_score = EXCLUDED.final_score,
@@ -159,6 +160,7 @@ async def save_prospect(
                 contact_email = COALESCE(EXCLUDED.contact_email, prospects.contact_email),
                 contact_phone = COALESCE(EXCLUDED.contact_phone, prospects.contact_phone),
                 contact_linkedin = COALESCE(EXCLUDED.contact_linkedin, prospects.contact_linkedin),
+                headquarters_address = COALESCE(EXCLUDED.headquarters_address, prospects.headquarters_address),
                 price_note = EXCLUDED.price_note,
                 updated_at = CURRENT_TIMESTAMP
         """,
@@ -195,7 +197,8 @@ async def save_prospect(
             str(prospect.get("contact_email", "")) if prospect.get("contact_email") else None,
             str(prospect.get("contact_phone", "")) if prospect.get("contact_phone") else None,
             str(prospect.get("contact_linkedin", "")) if prospect.get("contact_linkedin") else None,
-            str(prospect.get("price_note", "")) if prospect.get("price_note") else None
+            str(prospect.get("price_note", "")) if prospect.get("price_note") else None,
+            str(prospect.get("headquarters_address", "")) if prospect.get("headquarters_address") else None
         )
         
         print(f"[DATABASE] ✅ Saved to Postgres: {prospect.get('name')} ({city}) - Score: {scores.get('final_score', 0):.1f}")

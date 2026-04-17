@@ -704,6 +704,7 @@ async def validation_node(
                     contact_role=data.get("contactRole"),
                     contact_email=data.get("contactEmail"),
                     contact_phone=data.get("contactPhone"),
+                    headquarters_address=data.get("headquartersAddress"),
                     passes_constraints=True,
                     quality_score=getattr(content_obj, "quality_score", 0) if content_obj else 0,
                     query_origin=getattr(content_obj, "query_origin", "Unknown") if content_obj else "Unknown",

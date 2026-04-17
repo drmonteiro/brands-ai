@@ -22,6 +22,7 @@ from services.database import (
     get_all_searched_cities,
     get_dashboard_stats
 )
+from services.postgres import PostgresManager
 from data.lanca_clients import LANCA_CLIENTS, IDEAL_CLIENT_PROFILE
 from agents.nodes.utils import get_llm
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage

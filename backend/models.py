@@ -203,6 +203,9 @@ class BrandLead(BaseModel):
     contact_email: Optional[str] = Field(None, alias="contactEmail")
     contact_phone: Optional[str] = Field(None, alias="contactPhone")
     
+    # [V3.1] Headquarters information
+    headquarters_address: Optional[str] = Field(None, alias="headquartersAddress")
+    
     # Compatibility field for DB/Frontend mismatch
     avg_suit_price_eur: Optional[float] = Field(default=None)
     fit_score: int = Field(default=0, alias="fitScore")

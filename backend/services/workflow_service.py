@@ -63,7 +63,8 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
                         "locationScore": b.get("location_score", 0),
                         "fitScore": b.get("fit_score", 0),
                         "woolPercentage": material_comp[0] if material_comp else None,
-                        "madeToMeasure": b.get("made_to_measure", False)
+                        "madeToMeasure": b.get("made_to_measure", False),
+                        "headquartersAddress": b.get("headquarters_address")
                     }
                     brands.append(brand_dict)
                 else:
