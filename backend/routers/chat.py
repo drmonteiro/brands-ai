@@ -74,57 +74,29 @@ def build_prospect_context(prospects: list, context_label: str) -> str:
         mtm = "Sim" if p.get("made_to_measure") else "Não"
         heritage = "Sim" if p.get("heritage_brand") else "Não"
         appt_only = "Sim" if p.get("is_appointment_only") else "Não"
-        prices_visible = "Sim" if p.get("prices_visible") else "Não"
-        price_source = p.get("price_source", "N/A")
         
         # Scores
         final_score = p.get("final_score", 0)
         fit_score = p.get("fit_score", 0)
-        quality_score = p.get("quality_score", 0)
-        similarity_score = p.get("similarity_score", 0)
         
         # Similar client
         similar_client = p.get("most_similar_client", "N/A")
         similarity_explanation = p.get("similarity_explanation", "")
         
         # Contact
-        contact_name = p.get("contact_name") or "Não encontrado"
-        contact_role = p.get("contact_role") or ""
-        contact_email = p.get("contact_email") or "Não encontrado"
-        contact_phone = p.get("contact_phone") or ""
-        contact_linkedin = p.get("contact_linkedin") or ""
+        contact_name = p.get("contact_name") or "N/A"
+        contact_email = p.get("contact_email") or "N/A"
         
-        # Store locations
-        store_locs = p.get("store_locations", [])
-        if isinstance(store_locs, str):
-            store_locs_str = store_locs
-        elif isinstance(store_locs, list):
-            store_locs_str = ", ".join(str(s) for s in store_locs[:5]) if store_locs else "N/A"
-        else:
-            store_locs_str = "N/A"
-        
-        # Status
-        status = p.get("status", "new")
-        status_map = {"new": "Novo", "contacted": "Contactado", "converted": "Convertido", "rejected": "Rejeitado"}
-        status_pt = status_map.get(status, status)
-
-        lines.append(f"""
-┌─ {i}. {name.upper()}
-│  Cidade: {city} | País: {country}
-│  Website: {url}
-│  Sede/Localização: {hq}
-│  Lojas: {store_count} | Localizações: {store_locs_str}
-│  Preço Médio Fatos: {price}€ | Preços Visíveis: {prices_visible} | Fonte: {price_source}
-│  Estilo: {style} | Modelo de Negócio: {model}
-│  Made-to-Measure: {mtm} | Heritage: {heritage} | Só por Marcação: {appt_only}
-│  Score Final: {final_score}/100 | Fit Score: {fit_score} | Qualidade: {quality_score} | Similaridade: {similarity_score}
-│  Cliente Lança Mais Parecido: {similar_client}
-│  Explicação de Similaridade: {similarity_explanation[:200] if similarity_explanation else 'N/A'}
-│  Contacto: {contact_name} ({contact_role}) | Email: {contact_email} | Tel: {contact_phone}
-│  LinkedIn: {contact_linkedin or 'N/A'}
-│  Estado Comercial: {status_pt}
-│  Descrição: {(overview or description)[:300]}
-└──────────────────────────────""")
+        lines.append(f"BRAND: {name.upper()}")
+        lines.append(f"- Location: {city}, {country} | HQ: {hq}")
+        lines.append(f"- Digital: {url}")
+        lines.append(f"- Business: {store_count} stores | {style} style | {model}")
+        lines.append(f"- Product: Avg Price {price}€ | MTM: {mtm} | Heritage: {heritage} | Appt Only: {appt_only}")
+        lines.append(f"- Scores: Final {final_score}/100 | Fit {fit_score}")
+        lines.append(f"- Similarity: Matches {similar_client} ({similarity_explanation[:150] if similarity_explanation else 'N/A'})")
+        lines.append(f"- Sales Lead: {contact_name} | Email: {contact_email}")
+        lines.append(f"- Description: {(overview or description)[:200]}")
+        lines.append("-" * 30)
 
     return "\n".join(lines)
 
@@ -146,55 +118,36 @@ def build_client_context() -> str:
 # ============================================================================
 
 SYSTEM_PROMPT_TEMPLATE = """
-Tu és o **Consultor IA da Confeções Lança**, o assistente de inteligência comercial mais avançado da empresa.
-A Confeções Lança é uma fábrica portuguesa de alfaiataria premium (desde 1973) que produz fatos, casacos e calças para marcas internacionais (B2B). 
+Tu és o **Consultor IA da Confeções Lança**, um assistente de inteligência comercial especializado em alfaiataria premium.
 
-A tua missão é ajudar a equipa comercial a analisar e interpretar os dados de prospecção de mercado recolhidos pelo motor de IA da plataforma.
+MISSÃO:
+Ajuda a equipa comercial a analisar os dados de prospecção. Deves ser profissional, analítico e garantir que a informação é apresentada de forma limpa e estruturada.
 
-═══════════════════════════════════════════
-CONTEXTO DA EMPRESA LANÇA:
-═══════════════════════════════════════════
-- Fábrica portuguesa de alfaiataria de alta qualidade (B2B / Private Label)
-- Produz para marcas internacionais: fatos completos, casacos, calças
-- Gama de preços alvo (PVP das marcas parceiras): Fatos 500€-2.300€ | Casacos 300€-1.380€ | Calças 200€-920€
-- Clientes ideais: boutiques independentes com 1-20 lojas, marca própria, segmento premium
-- Mercados fortes: UK (44%), Espanha, Portugal, Europa Central, Américas
+CONTEXTO LANÇA:
+- Fábrica portuguesa de alfaiataria de alta qualidade (B2B).
+- Fatos (500€-2300€), Casacos (300€-1380€), Calças (200€-920€).
+- Mercado alvo: Boutiques premium (1-20 lojas).
 
 {client_context}
 
-═══════════════════════════════════════════
-BASE DE DADOS DE LEADS PROSPETADOS:
-═══════════════════════════════════════════
+---
+DADOS DE PROSPECÇÃO:
 {prospect_context}
 
-═══════════════════════════════════════════
+---
 ESTATÍSTICAS GERAIS:
-═══════════════════════════════════════════
 {stats_context}
 
-═══════════════════════════════════════════
-REGRAS DE COMUNICAÇÃO:
-═══════════════════════════════════════════
-1. Responde SEMPRE em Português Europeu (PT-PT), nunca em Brasileiro.
-2. Sê direto, analítico e conciso. Usa bullet points e parágrafos curtos.
-3. Quando mencionares uma marca, inclui SEMPRE: Nome, Preço Médio, Score, Website (se disponível).
-4. Se te perguntarem algo que NÃO está nos dados, diz claramente: "Essa informação não está disponível na nossa base de dados atual."
-5. Se te perguntarem algo fora do âmbito comercial/moda, responde educadamente mas redireciona para o teu propósito.
-6. Quando fizeres recomendações, justifica com dados concretos (scores, preços, similaridade com clientes existentes).
-7. Se te pedirem uma análise comparativa, organiza em tabela ou ranking claro.
-8. Lembra-te que o teu público são vendedores comerciais da Lança — gente prática que precisa de informação acionável.
-9. Nunca inventes dados. Se um campo diz N/A, diz que não temos essa informação.
-10. Se te perguntarem por uma cidade que não existe na base de dados, sugere que pesquisem essa cidade primeiro na página de Pesquisa.
-
-═══════════════════════════════════════════
-CAPACIDADES ESPECIAIS:
-═══════════════════════════════════════════
-- Podes criar rankings de marcas por preço, score, número de lojas
-- Podes identificar as marcas mais parecidas com clientes atuais
-- Podes recomendar estratégias de abordagem (ex: "Esta marca é Heritage, aborda com referência à tradição portuguesa")
-- Podes alertar para riscos (ex: "Esta marca é só por marcação, pode ser mais difícil de abordar por email frio")
-- Podes comparar marcas entre si
-- Podes sugerir quais leads priorizar com base no score e no perfil
+---
+REGRAS DE FORMATAÇÃO E COMUNICAÇÃO (OBRIGATÓRIO):
+1. Responde em Português Europeu (PT-PT).
+2. Usa Markdown profissional: **negritos** para nomes, listas com • e tabelas se necessário.
+3. ESTILO LIMPO: Não uses caracteres estranhos (como desenhos de caixas ou barras decorativas longas).
+4. ESTRUTURA: Divide a resposta em secções claras com títulos curtos.
+5. Se mencionares marcas, estrutura assim:
+   • **NOME** | Preço: X€ | Score: X/100 | [Website]
+6. Sê conciso. O utilizador quer informação rápida e acionável.
+7. Nunca inventes dados. Se não souberes, diz "Informação não disponível".
 """
 
 
