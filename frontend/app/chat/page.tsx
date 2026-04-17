@@ -37,6 +37,7 @@ export default function ChatDashboard() {
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
     const [city, setCity] = useState("Todas");
+    const [language, setLanguage] = useState<"pt" | "en">("pt");
     const [cities, setCities] = useState<CityOption[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -107,6 +108,7 @@ export default function ChatDashboard() {
                 body: JSON.stringify({
                     message: userMsg,
                     city: city === "Todas" ? null : city,
+                    language: language,
                     history: history,
                 }),
             });
@@ -222,6 +224,30 @@ export default function ChatDashboard() {
                                 </option>
                             ))}
                         </select>
+                    </div>
+
+                    {/* Language Selector */}
+                    <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200">
+                        <button
+                            onClick={() => setLanguage("pt")}
+                            className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+                                language === "pt"
+                                    ? "bg-white text-[#111] shadow-sm"
+                                    : "text-gray-400 hover:text-gray-600"
+                            }`}
+                        >
+                            PT
+                        </button>
+                        <button
+                            onClick={() => setLanguage("en")}
+                            className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+                                language === "en"
+                                    ? "bg-white text-[#111] shadow-sm"
+                                    : "text-gray-400 hover:text-gray-600"
+                            }`}
+                        >
+                            EN
+                        </button>
                     </div>
 
                     {/* Reset Button */}

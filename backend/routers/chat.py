@@ -41,6 +41,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     city: Optional[str] = None
+    language: str = "pt"  # "pt" or "en"
     history: List[ChatMessage] = []
 
 
@@ -222,13 +223,62 @@ async def process_chat(request: ChatRequest):
         except Exception:
             stats_context = "Estatísticas indisponíveis."
 
-        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+        # 3. Dynamic System Prompt based on Language
+        if request.language == "en":
+            lang_rules = """
+            - ALWAYS respond in English.
+            - Use professional business terminology.
+            - Structure: Use clear headers, bold brand names, and bullet points.
+            - Formatting: Use **bold** for emphasis and clean Markdown.
+            """
+            mission = "You are the **AI Consultant for Confeções Lança**, a specialized B2B assistant for premium tailoring."
+            context_label_prefix = "Prospecting data"
+        else:
+            lang_rules = """
+            - RESPONDE SEMPRE em Português Europeu (PT-PT).
+            - Estilo: Direto, analítico e profissional.
+            - Estrutura: Usa Markdown limpo, **negritos** para nomes e listas com pontos •.
+            - Não uses caracteres estranhos ou barras decorativas longas.
+            """
+            mission = "Tu és o **Consultor IA da Confeções Lança**, um assistente de inteligência comercial especializado em alfaiataria premium."
+            context_label_prefix = "Dados de prospecção"
+
+        system_prompt = f"""
+{mission}
+
+MISSÃO:
+Ajuda a equipa comercial a analisar os dados de prospecção. Deves ser profissional e garantir que a informação é apresentada de forma limpa.
+
+CONTEXTO LANÇA:
+- Fábrica portuguesa de alfaiataria de alta qualidade (B2B).
+- Fatos (500€-2300€), Casacos (300€-1380€), Calças (200€-920€).
+- Mercado alvo: Boutiques premium (1-20 lojas).
+
+{{client_context}}
+
+---
+{context_label_prefix}:
+{{prospect_context}}
+
+---
+ESTATÍSTICAS GERAIS:
+{{stats_context}}
+
+---
+REGRAS DE COMUNICAÇÃO:
+{lang_rules}
+5. Se mencionares marcas, estrutura assim:
+   • **NOME** | Preço: X€ | Score: X/100 | [Website]
+6. Sê conciso. O utilizador quer informação rápida e acionável.
+7. Nunca inventes dados. Se não souberes, diz "Informação não disponível" ou "Information not available".
+"""
+        final_system_prompt = system_prompt.format(
             prospect_context=prospect_context,
             client_context=client_context,
             stats_context=stats_context
         )
 
-        messages = [SystemMessage(content=system_prompt)]
+        messages = [SystemMessage(content=final_system_prompt)]
 
         for msg in request.history[-10:]:
             if msg.role == "user":
