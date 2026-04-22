@@ -34,7 +34,7 @@ async def generate_personalized_outreach(brand: BrandLead) -> str:
     from agents.nodes.utils import get_llm
     
     # We use the deep model for outreach generation to ensure high quality
-    llm = get_llm(fast=False, temperature=1.0)
+    llm = get_llm(fast=False, temperature=0.7)
     
     # Build context for personalization
     recipient = brand.contact_name or "Director / Founder"
@@ -45,28 +45,23 @@ async def generate_personalized_outreach(brand: BrandLead) -> str:
     prompt = f"""
     Write a highly professional B2B partnership proposal email from Confeções Lança (Portuguese quality menswear manufacturer) to {brand.name}.
     
-    CONTEXT ABOUT THE TARGET BRAND:
-    - Name: {brand.name}
+    You MUST use the following structure and content as requested by the client, but you can add small personalizations to make it feel more authentic for {brand.name} in {city}.
+    
+    BASE TEMPLATE:
+    Dear [Name/Team],
+    Having reviewed your brand online, we were very impressed with your retail presence and product offer.
+    I’m writing to introduce a tailoring manufacturer based in central Portugal. Established in 1973, the company has extensive experience supplying own-label garments to global brands, retail groups, and independent businesses.
+    We bring a strong depth of expertise, combining flexibility with consistent quality and service, along with pricing that supports healthy margins. With many clients based in the UK, we’ve developed a refined level of make, as well as the ability to respond to more demanding product development briefs.
+    We offer two levels of jacket construction: canvas fused and traditional half canvas with a padded lapel. Production can be developed from in-house blocks or created entirely to your direction. In addition, we manufacture completely unstructured jackets, as well as formal and casual trousers, waistcoats, and coats, primarily in wool blends. Should you have any other specific styles in mind, we would be very happy to review and develop these with you.
+    We believe this could represent a strong partnership in producing high-quality garments and would welcome the opportunity to explore this further. I’d be happy to arrange a short 15-minute call to introduce things in more detail and discuss potential collaboration.
+    Thank you for your time, and I look forward to hearing from you.
+    Warm regards
+    
+    INFO TO USE FOR PERSONALIZATION:
+    - Target Brand: {brand.name}
     - Location: {city}
     - Segment: {style}
-    - Price Point: {brand_price} (Retail price for suits)
     - Decision Maker: {recipient}
-    
-    ABOUT CONFEÇÕES LANÇA:
-    - Specialization: Quality tailored suits, trousers, waistcoats, overcoats, and formalwear.
-    - Legacy: Since 1973 (50+ years of expertise).
-    - Origin: Covilhã, Portugal (Historical textile hub).
-    - Clients: Manufacturing for well-known mid-to-high range menswear brands and independent boutiques across Europe.
-    - Advantage: Mix of high-tech production (laser cutting) with hand-finishing flexibility (sartorial models).
-    - Own Label: Capable of producing own label collections for retail partners.
-    
-    THE EMAIL SHOULD:
-    1. Be concise (max 180 words).
-    2. Start by acknowledging {brand.name}'s specific positioning in {city}.
-    3. Suggest that their price point of {brand_price} is a perfect fit for Lança's quality manufacturing.
-    4. Propose a short 15-minute introductory call.
-    5. Avoid sounding desperate; focus on European craftsmanship and reliable partnership.
-    6. Mention that {brand.name} was selected specifically by our AI-driven market analysis as a "top fit" brand.
     
     Return ONLY the email body in English. No subject line.
     """
@@ -79,35 +74,27 @@ async def generate_personalized_outreach(brand: BrandLead) -> str:
         return generate_email_text(brand)
 
 def generate_email_text(brand: BrandLead) -> str:
-    """Generate plain text version of email"""
+    """Generate plain text version of email using the client's preferred template"""
+    recipient = brand.contact_name or "Team"
     return f"""
-Dear {brand.name} Team,
+Dear {recipient},
 
-We are reaching out from Confeções Lança, a Portuguese garment manufacturer with over 50 years of excellence in producing superior quality menswear. We specialize in tailored suits, overcoats, vests, and trench coats using avant-garde production technologies and premium fabrics.
+Having reviewed your brand online, we were very impressed with your retail presence and product offer.
 
-We have identified {brand.name} as an exceptional brand that shares our commitment to quality and craftsmanship. Your positioning in the premium menswear market (average suit price: ${brand.average_suit_price_usd:.0f}) aligns perfectly with our manufacturing capabilities.
+I’m writing to introduce a tailoring manufacturer based in central Portugal. Established in 1973, the company has extensive experience supplying own-label garments to global brands, retail groups, and independent businesses.
 
-Why Partner with Confeções Lança?
+We bring a strong depth of expertise, combining flexibility with consistent quality and service, along with pricing that supports healthy margins. With many clients based in the UK, we’ve developed a refined level of make, as well as the ability to respond to more demanding product development briefs.
 
-• Specialized Manufacturing: Tailored suits and premium outerwear
-• Advanced Technology: Laser cutting and precision manufacturing
-• Sustainability Focus: Renewable energy and waste management
-• Flexibility: Both industrial scale and tailor-made models
-• Quality Certification: Structured processes ensuring excellence
+We offer two levels of jacket construction: canvas fused and traditional half canvas with a padded lapel. Production can be developed from in-house blocks or created entirely to your direction. In addition, we manufacture completely unstructured jackets, as well as formal and casual trousers, waistcoats, and coats, primarily in wool blends. Should you have any other specific styles in mind, we would be very happy to review and develop these with you.
 
-We would be delighted to discuss how we can support {brand.name}'s growth with our manufacturing expertise. Our team is ready to provide samples and detailed information about our capabilities.
+We believe this could represent a strong partnership in producing high-quality garments and would welcome the opportunity to explore this further. I’d be happy to arrange a short 15-minute call to introduce things in more detail and discuss potential collaboration.
 
-Would you be available for a brief call next week to explore this partnership opportunity?
+Thank you for your time, and I look forward to hearing from you.
 
-Best regards,
+Warm regards,
 
 Commercial Team
 Confeções Lança
-Covilhã, Portugal
-Email: comercial@confecos-lanca.pt
-
----
-Confeções Lança • Established 1973 • Excellence in Portuguese Manufacturing
     """.strip()
 
 
