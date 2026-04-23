@@ -315,16 +315,16 @@ async def validation_node(
             if hasattr(state, "target_city")
             else state.get("target_city")
         )
-    price_threshold_usd = (
-        state.price_threshold_usd
-        if hasattr(state, "price_threshold_usd")
-        else state.get("price_threshold_usd", 0)
-    )
-    search_results = (
-        state.search_results
-        if hasattr(state, "search_results")
-        else state.get("search_results", [])
-    )
+        price_threshold_usd = (
+            state.price_threshold_usd
+            if hasattr(state, "price_threshold_usd")
+            else state.get("price_threshold_usd", 0)
+        )
+        search_results = (
+            state.search_results
+            if hasattr(state, "search_results")
+            else state.get("search_results", [])
+        )
 
     print(f"[VALIDATION V3] Starting 2-phase validation for {target_city}...")
     new_progress = []
@@ -390,14 +390,33 @@ async def validation_node(
             f"\n🚜 HARVEST: {len(candidate_urls)} URLs únicos encontrados..."
         )
 
-        # Cap candidates to avoid timeout on large cities (Azure SSE ~4min limit)
-        MAX_CANDIDATES = 120
+        # Cap candidates intelligently (Priority by origin + sorting instead of random)
+        MAX_CANDIDATES = 200
         if len(candidate_urls) > MAX_CANDIDATES:
-            import random as _random
-            _random.shuffle(candidate_urls)
+            # Origin Priority Map
+            ORIGIN_PRIORITY = {
+                "B2B/PrivateLabel": 100,
+                "Trade": 90,
+                "Emerging": 80,
+                "Sartorial": 70,
+                "Local": 65,
+                "Wedding": 60,
+                "RTW": 50,
+                "Editorial": 30,
+                "Catch-all": 10,
+                "Unknown": 0
+            }
+            
+            # Sort URLs based on origin priority
+            candidate_urls.sort(
+                key=lambda u: ORIGIN_PRIORITY.get(url_to_origin.get(normalize_url(u), "Unknown"), 0), 
+                reverse=True
+            )
+            
+            # Trim
             candidate_urls = candidate_urls[:MAX_CANDIDATES]
             new_progress.append(
-                f"   ⚡ Limitado a {MAX_CANDIDATES} candidatos para garantir volume e otimizar tempo"
+                f"   ⚡ Selecionados {MAX_CANDIDATES} melhores candidatos por prioridade de origem"
             )
 
         # ================================================================

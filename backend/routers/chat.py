@@ -88,11 +88,13 @@ def build_prospect_context(prospects: list, context_label: str) -> str:
         contact_name = p.get("contact_name") or "N/A"
         contact_email = p.get("contact_email") or "N/A"
         
+        price_note = p.get("price_note", "")
+        
         lines.append(f"BRAND: {name.upper()}")
         lines.append(f"- Location: {city}, {country} | HQ: {hq}")
         lines.append(f"- Digital: {url}")
         lines.append(f"- Business: {store_count} stores | {style} style | {model}")
-        lines.append(f"- Product: Avg Price {price}€ | MTM: {mtm} | Heritage: {heritage} | Appt Only: {appt_only}")
+        lines.append(f"- Product: Avg Price {price}€ | MTM: {mtm} | Heritage: {heritage} | Appt Only: {appt_only} | Price Note: {price_note if price_note else 'N/A'}")
         lines.append(f"- Scores: Final {final_score}/100 | Fit {fit_score}")
         lines.append(f"- Similarity: Matches {similar_client} ({similarity_explanation[:150] if similarity_explanation else 'N/A'})")
         lines.append(f"- Sales Lead: {contact_name} | Email: {contact_email}")

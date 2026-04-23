@@ -88,6 +88,17 @@ Return ONLY a JSON array of 3 strings. No explanation."""
         return []
 
 
+async def infer_country(city: str) -> str:
+    """Use fast LLM to dynamically identify the country of a given city."""
+    try:
+        llm = get_llm(fast=True, temperature=0.0)
+        prompt = f"Given the city '{city}', what country is it in? Reply with ONLY the English name of the country. No punctuation. Example: if city is 'Milano', reply 'Italy'."
+        response = await llm.ainvoke(prompt)
+        return response.content.strip()
+    except Exception as e:
+        print(f"[INIT] Warning: Failed to infer country for {city} via LLM: {e}")
+        return "USA"  # Fallback
+
 async def initialize_search(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
     """
     Initialize search and generate queries using optimized templates + LLM local queries.
@@ -97,15 +108,11 @@ async def initialize_search(state: Union[ProspectorState, Dict[str, Any]]) -> Di
     target_country = state.target_country if hasattr(state, "target_country") else state.get("target_country", "USA")
     price_threshold_eur = state.price_threshold_eur if hasattr(state, "price_threshold_eur") else state.get("price_threshold_eur", 500)
     
-    # [V2.5] Basic Country Inference
-    if target_country == "USA": # Only try to infer if it's the default
-        city_lower = target_city.lower()
-        if any(c in city_lower for f, c in [("london", "london"), ("manchester", "manchester"), ("birmingham", "birmingham")]): target_country = "UK"
-        elif any(c in city_lower for c in ["paris", "lyon", "marseille"]): target_country = "France"
-        elif any(c in city_lower for c in ["berlin", "munich", "hamburg", "frankfurt"]): target_country = "Germany"
-        elif any(c in city_lower for c in ["milan", "rome", "florence", "naples"]): target_country = "Italy"
-        elif any(c in city_lower for c in ["madrid", "barcelona"]): target_country = "Spain"
-        elif any(c in city_lower for c in ["lisbon", "porto"]): target_country = "Portugal"
+    # [V2.5] Dynamic Country Inference via LLM (if missing or default USA)
+    if target_country == "USA" or not target_country:
+        inferred_country = await infer_country(target_city)
+        if inferred_country:
+            target_country = inferred_country
     
     print(f"[INIT] Starting intelligent search for: {target_city}, {target_country}")
     
@@ -183,6 +190,18 @@ async def select_queries(city: str) -> tuple[List[str], List[str]]:
     # 6. Catch-all
     selected_queries.append(f"{city} men's suits mid range affordable premium boutique")
     origins.append("Catch-all")
+    
+    # 7. B2B / Private Label — directly targets brands seeking manufacturing partners
+    selected_queries.append(f"{city} menswear brand private label own brand collection suits")
+    origins.append("B2B/PrivateLabel")
+    
+    # 8. Trade / Wholesale — finds brands through industry channels
+    selected_queries.append(f"{city} independent suit brand wholesale stockist retailer")
+    origins.append("Trade")
+    
+    # 9. Emerging Brands — new entrants actively building supply chains
+    selected_queries.append(f"new menswear brand {city} tailored suits launch")
+    origins.append("Emerging")
     
     # === LOCAL LANGUAGE QUERIES (LLM mini, ~$0.01) ===
     local_queries = await generate_local_queries(city)

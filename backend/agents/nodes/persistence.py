@@ -10,12 +10,52 @@ from services.vector_db import calculate_prospect_score
 from services.contact_finder import find_contacts_for_brand
 from .utils import normalize_url
 
+# ============================================================================
+# COUNTRY NAME → ISO CODE MAPPING
+# Fixes the "XX" placeholder that broke market_score for ALL brands.
+# ============================================================================
+COUNTRY_TO_CODE = {
+    # Europe
+    "united kingdom": "GB", "uk": "GB", "england": "GB", "scotland": "GB", "wales": "GB",
+    "france": "FR", "germany": "DE", "italy": "IT", "italia": "IT",
+    "spain": "ES", "españa": "ES", "portugal": "PT",
+    "netherlands": "NL", "holland": "NL", "belgium": "BE", "belgique": "BE",
+    "switzerland": "CH", "sweden": "SE", "denmark": "DK",
+    "norway": "NO", "finland": "FI", "ireland": "IE",
+    "austria": "AT", "greece": "GR", "romania": "RO",
+    "czech republic": "CZ", "czechia": "CZ", "poland": "PL",
+    "hungary": "HU", "croatia": "HR", "luxembourg": "LU",
+    # Americas
+    "united states": "US", "usa": "US", "us": "US",
+    "canada": "CA", "mexico": "MX", "méxico": "MX",
+    "brazil": "BR", "brasil": "BR", "colombia": "CO",
+    "peru": "PE", "argentina": "AR", "chile": "CL",
+    # Asia & Middle East
+    "japan": "JP", "south korea": "KR", "china": "CN", "india": "IN",
+    "singapore": "SG", "hong kong": "HK", "turkey": "TR", "türkiye": "TR",
+    "uae": "AE", "united arab emirates": "AE", "saudi arabia": "SA",
+    "qatar": "QA", "bahrain": "BH", "kuwait": "KW",
+    # Oceania & Africa
+    "australia": "AU", "new zealand": "NZ", "angola": "AO",
+    "south africa": "ZA", "nigeria": "NG", "morocco": "MA",
+    # Aliases
+    "international": "XX",
+}
+
+
+def _resolve_country_code(country_name: str) -> str:
+    """Resolve a country name to its ISO 3166-1 alpha-2 code."""
+    if not country_name:
+        return "XX"
+    return COUNTRY_TO_CODE.get(country_name.lower().strip(), "XX")
+
 async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
     """
     Finalize the selected brands and save to PostgreSQL database.
     """
     target_city = state.target_city if hasattr(state, "target_city") else state.get("target_city")
     potential_brands = state.potential_brands if hasattr(state, "potential_brands") else state.get("potential_brands", [])
+    exchange_rate = state.exchange_rate if hasattr(state, "exchange_rate") else state.get("exchange_rate", 1.08)
     
     print(f"[FILTER] Saving {len(potential_brands)} brands for {target_city}...")
     new_progress = []
@@ -82,9 +122,9 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
             "website_url": brand_dict.get("websiteUrl") or brand_dict.get("website_url"),
             "city": target_city,
             "country": brand_dict.get("originCountry") or brand_dict.get("origin_country"),
-            "country_code": "XX", # Placeholder
+            "country_code": _resolve_country_code(brand_dict.get("originCountry") or brand_dict.get("origin_country", "")),
             "store_count": brand_dict.get("storeCount") or brand_dict.get("store_count", 1),
-            "avg_suit_price_eur": float(brand_dict.get("averageSuitPriceUSD") or brand_dict.get("average_suit_price_usd") or 0) / 1.08,
+            "avg_suit_price_eur": float(brand_dict.get("averageSuitPriceUSD") or brand_dict.get("average_suit_price_usd") or 0) / exchange_rate,
             "brand_style": brand_dict.get("brandStyle") or brand_dict.get("brand_style", "unknown"),
             "business_model": brand_dict.get("businessModel") or brand_dict.get("business_model", "unknown"),
             "description": brand_dict.get("companyOverview") or brand_dict.get("company_overview", ""),

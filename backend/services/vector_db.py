@@ -510,9 +510,6 @@ async def calculate_prospect_score(prospect: Dict) -> Tuple[Dict, List[Dict]]:
             price = 0
     
     # Calculate individual scores
-    price_score = calculate_price_score(price)
-    size_score = calculate_size_score(store_count)
-    wool_score = calculate_wool_score(prospect.get("wool_percentage", "unknown"))
     mtm_score = calculate_mtm_score(prospect.get("made_to_measure", None))
     
     # Similarity score (0-20 pts)
@@ -526,14 +523,25 @@ async def calculate_prospect_score(prospect: Dict) -> Tuple[Dict, List[Dict]]:
     country_code = prospect.get("country_code", "XX")
     market_score = get_market_strength_score(country_code)
     
-    # Calculate final score (simple addition, max 100)
+    # Fit Score (LLM judgment) (0-15 pts)
+    # The fit_score from deep analysis is 0-100, we map it to 0-15
+    llm_raw_fit = prospect.get("fit_score", 0)
+    try:
+        llm_raw_fit = float(llm_raw_fit)
+    except:
+        llm_raw_fit = 0
+    fit_score_bonus = (llm_raw_fit / 100) * 15
+
+    # Rebalanced Weights for 100 pts total:
+    # Price: 20, Size: 15, Wool: 10, MTM: 10, Similarity: 20, Market: 10, LLM Fit: 15
     final_score = (
-        price_score +       # 0-25 pts
-        size_score +        # 0-20 pts
-        wool_score +        # 0-15 pts
+        (calculate_price_score(price) * 0.8) +    # 0-20 pts
+        (calculate_size_score(store_count) * 0.75) + # 0-15 pts
+        (calculate_wool_score(prospect.get("wool_percentage", "unknown")) * 0.67) + # 0-10 pts
         mtm_score +         # 0-10 pts
         similarity_score +  # 0-20 pts
-        market_score        # 0-10 pts
+        market_score +      # 0-10 pts
+        fit_score_bonus     # 0-15 pts
     )
     
     # If fails hard filters, cap score at 40
@@ -571,12 +579,13 @@ async def calculate_prospect_score(prospect: Dict) -> Tuple[Dict, List[Dict]]:
         "passes_hard_filters": passes,
         "rejection_reason": rejection_reason,
         "breakdown": {
-            "price_score": price_score,       # 0-25
-            "size_score": size_score,         # 0-20
-            "wool_score": wool_score,         # 0-15
-            "mtm_score": mtm_score,           # 0-10
-            "similarity_score": round(similarity_score, 2),  # 0-20
-            "market_score": round(market_score, 2),          # 0-10
+            "price_score": round(calculate_price_score(price) * 0.8, 2),
+            "size_score": round(calculate_size_score(store_count) * 0.75, 2),
+            "wool_score": round(calculate_wool_score(prospect.get("wool_percentage", "unknown")) * 0.67, 2),
+            "mtm_score": mtm_score,
+            "similarity_score": round(similarity_score, 2),
+            "market_score": round(market_score, 2),
+            "llm_fit_score": round(fit_score_bonus, 2),
         },
         "thresholds": {
             "ideal_price_eur": IDEAL_PRICE_EUR,
