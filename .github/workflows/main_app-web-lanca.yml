@@ -37,9 +37,55 @@ jobs:
             !./backend/venv/
             !./backend/__pycache__/
 
-  deploy:
+  # ============================================================
+  # SYNC ENV VARS → AZURE APP SETTINGS
+  # ============================================================
+  # Para adicionar uma nova variável de ambiente:
+  #   1. Vai a GitHub → Settings → Secrets and variables → Actions
+  #   2. Clica "New repository secret" e adiciona o valor
+  #   3. Adiciona uma linha nova no app-settings-json abaixo:
+  #      {"name":"NOVA_VAR","value":"${{ secrets.NOVA_VAR }}","slotSetting":false}
+  # ============================================================
+  sync-env-vars:
     runs-on: ubuntu-latest
     needs: build
+
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Sync Application Settings to Azure
+        uses: azure/appservice-settings@v1
+        with:
+          app-name: 'lanca-ai-backend-api'
+          app-settings-json: |
+            [
+              {"name": "AZURE_OPENAI_API_KEY",            "value": "${{ secrets.AZURE_OPENAI_API_KEY }}",            "slotSetting": false},
+              {"name": "AZURE_OPENAI_ENDPOINT",           "value": "${{ secrets.AZURE_OPENAI_ENDPOINT }}",           "slotSetting": false},
+              {"name": "AZURE_OPENAI_DEPLOYMENT",         "value": "${{ secrets.AZURE_OPENAI_DEPLOYMENT }}",         "slotSetting": false},
+              {"name": "AZURE_OPENAI_DEPLOYMENT_FAST",    "value": "${{ secrets.AZURE_OPENAI_DEPLOYMENT_FAST }}",    "slotSetting": false},
+              {"name": "AZURE_OPENAI_API_VERSION",        "value": "${{ secrets.AZURE_OPENAI_API_VERSION }}",        "slotSetting": false},
+              {"name": "AZURE_OPENAI_EMBEDDING_DEPLOYMENT","value": "${{ secrets.AZURE_OPENAI_EMBEDDING_DEPLOYMENT }}","slotSetting": false},
+              {"name": "TAVILY_API_KEY",                  "value": "${{ secrets.TAVILY_API_KEY }}",                  "slotSetting": false},
+              {"name": "RESEND_API_KEY",                  "value": "${{ secrets.RESEND_API_KEY }}",                  "slotSetting": false},
+              {"name": "JINA_API_KEY",                    "value": "${{ secrets.JINA_API_KEY }}",                    "slotSetting": false},
+              {"name": "EXA_API_KEY",                     "value": "${{ secrets.EXA_API_KEY }}",                     "slotSetting": false},
+              {"name": "FIRECRAWL_API_KEY",               "value": "${{ secrets.FIRECRAWL_API_KEY }}",               "slotSetting": false},
+              {"name": "POSTGRES_USER",                   "value": "${{ secrets.POSTGRES_USER }}",                   "slotSetting": false},
+              {"name": "POSTGRES_PASSWORD",               "value": "${{ secrets.POSTGRES_PASSWORD }}",               "slotSetting": false},
+              {"name": "POSTGRES_DB",                     "value": "${{ secrets.POSTGRES_DB }}",                     "slotSetting": false},
+              {"name": "POSTGRES_HOST",                   "value": "${{ secrets.POSTGRES_HOST }}",                   "slotSetting": false},
+              {"name": "POSTGRES_PORT",                   "value": "${{ secrets.POSTGRES_PORT }}",                   "slotSetting": false},
+              {"name": "SYNC_DATABASE_URL",               "value": "${{ secrets.SYNC_DATABASE_URL }}",               "slotSetting": false},
+              {"name": "FROM_EMAIL",                      "value": "${{ secrets.FROM_EMAIL }}",                      "slotSetting": false},
+              {"name": "LANGCHAIN_TRACING_V2",            "value": "false",                                          "slotSetting": false}
+            ]
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: sync-env-vars
 
     steps:
       - name: Download artifact from build job

@@ -195,8 +195,27 @@ def extract_price_from_content(content: str) -> Dict[str, float]:
             "confidence": float (0.0-1.0)
         }
     """
+    import json
+    
     if not content:
         return {"avg_price": 0, "confidence": 0.0, "price_count": 0}
+        
+    firecrawl_price = 0
+    firecrawl_confidence_str = "not_found"
+    
+    # Process Firecrawl injected JSON if present
+    fc_marker = "=== FIRECRAWL PRICE EXTRACT ==="
+    if fc_marker in content:
+        parts = content.split(fc_marker)
+        content_text = parts[0]
+        try:
+            fc_data = json.loads(parts[1].strip())
+            firecrawl_price = fc_data.get("average_suit_price_eur", 0)
+            firecrawl_confidence_str = fc_data.get("price_confidence", "not_found")
+        except Exception:
+            pass
+    else:
+        content_text = content
     
     # Master price pattern — captures:
     # Group 1: prefix currency (€, $, £)
@@ -223,7 +242,7 @@ def extract_price_from_content(content: str) -> Dict[str, float]:
     suit_prices_eur: List[float] = []
     currencies_found: List[str] = []
     
-    for match in price_pattern.finditer(content):
+    for match in price_pattern.finditer(content_text):
         prefix_currency = match.group(1) or ""
         number_with_prefix = match.group(2) or ""
         number_without_prefix = match.group(3) or ""
@@ -249,11 +268,11 @@ def extract_price_from_content(content: str) -> Dict[str, float]:
         
         # Context check: is this price near a suit keyword?
         pos = match.start()
-        if _is_near_suit_keyword(content, pos) and not _is_near_non_suit_keyword(content, pos):
+        if _is_near_suit_keyword(content_text, pos) and not _is_near_non_suit_keyword(content_text, pos):
             suit_prices_eur.append(val_eur)
     
     # Also process "from" patterns
-    for match in from_pattern.finditer(content):
+    for match in from_pattern.finditer(content_text):
         prefix = match.group(1) or ""
         number_str = match.group(2) or ""
         suffix = match.group(3) or ""
@@ -267,22 +286,31 @@ def extract_price_from_content(content: str) -> Dict[str, float]:
         if 150 < val_eur < 8000:
             currencies_found.append(currency)
             pos = match.start()
-            if _is_near_suit_keyword(content, pos):
+            if _is_near_suit_keyword(content_text, pos):
                 suit_prices_eur.append(val_eur)
             all_prices_eur.append(val_eur)
     
-    # Prioritize suit-context prices; fall back to all prices
     prices_to_use = suit_prices_eur if suit_prices_eur else all_prices_eur
     
-    if not prices_to_use:
-        return {"avg_price": 0, "confidence": 0.0, "price_count": 0}
-    
-    # Calculate confidence
+    avg_price = sum(prices_to_use) / len(prices_to_use) if prices_to_use else 0
     confidence = 0.0
+    
     if suit_prices_eur:
         confidence = min(0.9, 0.5 + len(suit_prices_eur) * 0.1)
     elif all_prices_eur:
         confidence = min(0.5, 0.2 + len(all_prices_eur) * 0.05)
+        
+    # Compare with Firecrawl Semantic Extraction
+    if firecrawl_confidence_str in ["high", "medium"] and firecrawl_price > 0:
+        fc_conf = 0.95 if firecrawl_confidence_str == "high" else 0.7
+        if fc_conf > confidence:
+            avg_price = firecrawl_price
+            confidence = fc_conf
+            prices_to_use = [firecrawl_price]  # override to avoid min/max issues
+            currencies_found.append("EUR") # assume EUR since it's converted
+    
+    if not prices_to_use and avg_price == 0:
+        return {"avg_price": 0, "confidence": 0.0, "price_count": 0}
     
     # Determine dominant currency
     if currencies_found:
@@ -290,12 +318,10 @@ def extract_price_from_content(content: str) -> Dict[str, float]:
     else:
         dominant_currency = "unknown"
     
-    avg_price = sum(prices_to_use) / len(prices_to_use)
-    
     return {
         "avg_price": round(avg_price, 2),
-        "min_price": round(min(prices_to_use), 2),
-        "max_price": round(max(prices_to_use), 2),
+        "min_price": round(min(prices_to_use), 2) if prices_to_use else round(avg_price, 2),
+        "max_price": round(max(prices_to_use), 2) if prices_to_use else round(avg_price, 2),
         "currency_detected": dominant_currency,
         "price_count": len(prices_to_use),
         "confidence": round(confidence, 2),

@@ -1,21 +1,23 @@
 """
 Node 2: Discovery Node
-Performs web searches using Tavily and finds potential brand URLs.
+Performs web searches using Exa (neural/semantic search) and finds potential brand URLs.
 """
 from typing import List, Dict, Any, Union
+import os
 from models import ProspectorState, QuerySearchResults
-from .utils import get_tavily_client, normalize_url
+from .utils import normalize_url
+from exa_py import Exa
 
 async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Discovery - Find potential brand URLs using REAL web search with Tavily.
+    Discovery - Find potential brand URLs using REAL web search with Exa (neural/semantic).
     Saves results to the state (replacing legacy global mutable list).
     """
     # Handle state
     search_queries = state.search_queries if hasattr(state, "search_queries") else state.get("search_queries", [])
     query_origins = state.query_origins if hasattr(state, "query_origins") else state.get("query_origins", [])
     
-    print(f"[DISCOVERY] Starting Tavily search with {len(search_queries)} queries...")
+    print(f"[DISCOVERY] Starting Exa search with {len(search_queries)} queries...")
     
     candidate_urls: List[str] = []
     unique_urls: set = set()
@@ -26,7 +28,7 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
         total_queries = len(search_queries)
         new_progress.append(f"🔍 Iniciando busca com {total_queries} queries...")
         
-        client = get_tavily_client()
+        exa = Exa(api_key=os.environ.get("EXA_API_KEY"))
         exclude_domains = [
             # E-commerce giants
             "amazon.com", "ebay.com", "walmart.com", "target.com",
@@ -52,14 +54,15 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
         for i, query in enumerate(search_queries):
             origin = query_origins[i] if i < len(query_origins) else "Unknown"
             try:
-                print(f"[TAVILY] Query {i + 1} ({origin}): \"{query}\"")
+                print(f"[EXA] Query {i + 1} ({origin}): \"{query}\"")
                 new_progress.append(f"🔎 Query {i + 1}: \"{query}\"")
                 
-                response = client.search(
-                    query=query,
-                    search_depth="advanced",
-                    max_results=100, # Maximize raw funnel size (Cost remains 1 credit per query)
+                response = exa.search(
+                    query,
+                    num_results=20,
+                    type="auto",
                     exclude_domains=exclude_domains,
+                    contents={"highlights": True}
                 )
                 
                 query_results = QuerySearchResults(
@@ -68,21 +71,24 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
                     query_origin=origin,
                     results=[]
                 )
-                for result in response.get("results", []):
-                    url = result.get("url", "")
+                for result in response.results:
+                    url = result.url or ""
                     if url and normalize_url(url) not in unique_urls:
                         unique_urls.add(normalize_url(url))
                         candidate_urls.append(url)
+                        
+                        highlights_str = " ".join(result.highlights) if hasattr(result, "highlights") and result.highlights else ""
+                        
                         query_results.results.append({
                             "url": url,
-                            "title": result.get("title", ""),
-                            "content": result.get("content", ""),
+                            "title": result.title or "",
+                            "content": highlights_str,
                             "query_origin": origin # Pass origin into individual results
                         })
                 search_results.append(query_results)
-                new_progress.append(f"   ✓ {len(response.get('results', []))} resultados")
+                new_progress.append(f"   ✓ {len(response.results)} resultados")
             except Exception as e:
-                print(f"[TAVILY] Error: {e}")
+                print(f"[EXA] Error: {e}")
                 new_progress.append(f"   ⚠️ Query {i + 1} falhou")
         
         new_progress.append(f"📈 Encontradas {len(candidate_urls)} URLs únicos")

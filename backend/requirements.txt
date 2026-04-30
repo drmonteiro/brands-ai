@@ -30,6 +30,7 @@ langgraph-checkpoint-postgres
 
 # Extraction Engines
 firecrawl-py
+exa-py
 gunicorn
 
 # WhatsApp (Twilio)
