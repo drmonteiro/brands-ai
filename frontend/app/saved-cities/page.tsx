@@ -37,6 +37,7 @@ export default function SavedCitiesPage() {
     const [isLoadingCities, setIsLoadingCities] = useState(true);
     const [isLoadingProspects, setIsLoadingProspects] = useState(false);
     const [activeFilters, setActiveFilters] = useState<ProspectFilters>({});
+    const [cityToDelete, setCityToDelete] = useState<string | null>(null);
 
     useEffect(() => { fetchCities(); }, []);
     useEffect(() => { if (selectedCity) fetchProspectsForCity(selectedCity); }, [activeFilters]);
@@ -103,19 +104,28 @@ export default function SavedCitiesPage() {
         window.open(`${API_URL}/api/export/csv?${params.toString()}`, '_blank');
     };
 
-    const handleDeleteCity = async () => {
+    const handleDeleteCity = async (e?: React.MouseEvent) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         if (!selectedCity) return;
-        if (!window.confirm(`Eliminar ${selectedCity} e todas as suas marcas?`)) return;
+        setCityToDelete(selectedCity);
+    };
+
+    const confirmDeleteCity = async () => {
+        if (!cityToDelete) return;
         try {
             const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-            const response = await fetch(`${API_URL}/api/cities/${encodeURIComponent(selectedCity)}`, { method: 'DELETE' });
+            const response = await fetch(`${API_URL}/api/cities/${encodeURIComponent(cityToDelete)}`, { method: 'DELETE' });
             if (response.ok) {
-                toast.success(`Cidade ${selectedCity} eliminada.`);
+                toast.success(`Cidade ${cityToDelete} eliminada.`);
                 setSelectedCity(null);
                 setProspects([]);
                 fetchCities();
             } else { toast.error("Erro ao eliminar."); }
         } catch { toast.error("Erro ao eliminar."); }
+        finally { setCityToDelete(null); }
     };
 
     const safeCities = Array.isArray(savedCities) ? savedCities : [];
@@ -216,6 +226,7 @@ export default function SavedCitiesPage() {
                                 </Button>
                             )}
                             <Button
+                                type="button"
                                 variant="outline"
                                 size="sm"
                                 onClick={handleDeleteCity}
@@ -307,6 +318,38 @@ export default function SavedCitiesPage() {
                     )}
                 </div>
             </main>
+
+            {/* Custom Delete Confirmation Modal */}
+            {cityToDelete && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div 
+                        className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-border p-6 animate-in zoom-in-95 duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 className="text-lg font-bold text-foreground mb-2">Eliminar Registo</h3>
+                        <p className="text-sm text-muted-foreground mb-6">
+                            Tens a certeza que queres eliminar a cidade <strong className="capitalize">{cityToDelete}</strong> e todas as suas marcas associadas? Esta ação não pode ser desfeita.
+                        </p>
+                        <div className="flex gap-3 justify-end">
+                            <Button 
+                                type="button" 
+                                variant="ghost" 
+                                onClick={() => setCityToDelete(null)}
+                                className="h-10 rounded-xl"
+                            >
+                                Cancelar
+                            </Button>
+                            <Button 
+                                type="button" 
+                                onClick={confirmDeleteCity} 
+                                className="bg-rose-600 hover:bg-rose-700 text-white h-10 rounded-xl"
+                            >
+                                Sim, Eliminar
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
