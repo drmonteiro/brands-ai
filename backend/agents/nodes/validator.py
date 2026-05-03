@@ -420,16 +420,50 @@ async def validation_node(
             )
 
         # ================================================================
-        # PHASE 0b: SCRAPE + MULTI-LANGUAGE KEYWORD SCORING
+        # PHASE 0b: CONTENT EXTRACTION (Exa text → Firecrawl/Jina fallback)
         # ================================================================
-        extracted_contents = await batch_extract_content(candidate_urls)
+        # Build a map of URL → Exa text from search_results (already crawled)
+        exa_text_map = {}
+        for qr in search_results:
+            for r in qr.results:
+                url = r.get("url", "")
+                text = r.get("text", "")
+                if url and text and len(text) >= 500:
+                    norm = normalize_url(url)
+                    if norm not in exa_text_map or len(text) > len(exa_text_map[norm]):
+                        exa_text_map[norm] = text
+
+        # Pre-fill from Exa, identify gaps for Firecrawl/Jina
+        extracted_contents = []
+        urls_needing_scrape = []
+        for url in candidate_urls:
+            norm = normalize_url(url)
+            exa_text = exa_text_map.get(norm, "")
+            if exa_text and len(exa_text) >= 500:
+                extracted_contents.append(ExtractedContent(url=url, content=exa_text[:15000]))
+            else:
+                urls_needing_scrape.append(url)
+                extracted_contents.append(ExtractedContent(url=url, content=""))
+
+        exa_hits = len(candidate_urls) - len(urls_needing_scrape)
+
+        # Only call Firecrawl/Jina for URLs that Exa didn't cover
+        if urls_needing_scrape:
+            scraped = await batch_extract_content(urls_needing_scrape)
+            scraped_map = {normalize_url(s.url): s.content for s in scraped if s.content}
+            for i, ec in enumerate(extracted_contents):
+                if not ec.content:
+                    norm = normalize_url(ec.url)
+                    if norm in scraped_map:
+                        extracted_contents[i] = ExtractedContent(url=ec.url, content=scraped_map[norm])
+
         for ec in extracted_contents:
             norm = normalize_url(ec.url)
             ec.query_origin = url_to_origin.get(norm, "Unknown")
 
         successful_extractions = [e for e in extracted_contents if e.content]
         new_progress.append(
-            f"   ✅ Conteúdo extraído: {len(successful_extractions)}/{len(candidate_urls)}"
+            f"   ✅ Conteúdo extraído: {len(successful_extractions)}/{len(candidate_urls)} (Exa: {exa_hits}, Scrape: {len(successful_extractions) - exa_hits})"
         )
 
         # Multi-language keyword scoring

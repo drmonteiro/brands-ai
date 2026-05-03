@@ -62,7 +62,7 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
                     num_results=20,
                     type="auto",
                     exclude_domains=exclude_domains,
-                    contents={"highlights": True}
+                    contents={"text": {"maxCharacters": 10000}, "highlights": True}
                 )
                 
                 query_results = QuerySearchResults(
@@ -78,12 +78,14 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
                         candidate_urls.append(url)
                         
                         highlights_str = " ".join(result.highlights) if hasattr(result, "highlights") and result.highlights else ""
+                        text_content = result.text if hasattr(result, "text") and result.text else ""
                         
                         query_results.results.append({
                             "url": url,
                             "title": result.title or "",
                             "content": highlights_str,
-                            "query_origin": origin # Pass origin into individual results
+                            "text": text_content,  # Full page text from Exa index
+                            "query_origin": origin
                         })
                 search_results.append(query_results)
                 new_progress.append(f"   ✓ {len(response.results)} resultados")
