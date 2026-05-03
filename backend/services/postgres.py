@@ -23,14 +23,15 @@ class PostgresManager:
                 password = os.getenv("POSTGRES_PASSWORD", "lanca_password")
                 database = os.getenv("POSTGRES_DB", "lanca_leads")
                 host = os.getenv("POSTGRES_HOST", "localhost")
-                port = os.getenv("POSTGRES_PORT", "5432")
+                port_str = os.getenv("POSTGRES_PORT", "5432")
+                port = int(port_str) if port_str else 5432
                 
                 cls._pool = await asyncpg.create_pool(
                     user=user,
                     password=password,
                     database=database,
                     host=host,
-                    port=int(port),
+                    port=port,
                     min_size=5,
                     max_size=20
                 )
