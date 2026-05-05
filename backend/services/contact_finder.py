@@ -307,8 +307,8 @@ CRITICAL RULE FOR LINKEDIN:
 - If the LinkedIn profile belongs to someone DIFFERENT than the person you identified as Owner/Founder/CEO, do NOT include it.
 
 🧠 STEP 5 — EMAIL STRATEGY
-If direct email is not available: Generate a probable email using domain pattern. Mark it as "generated".
-If email is found: Mark as "verified" or "unverified".
+If an exact direct email is explicitly found in the text, return it.
+If you do not find a direct email in the text: DO NOT GUESS OR GENERATE ONE. Leave it as null or empty. It is strictly forbidden to guess emails using domain patterns.
 
 🧠 STEP 6 — CONFIDENCE SCORING
 Score from 0 to 1 based on:
