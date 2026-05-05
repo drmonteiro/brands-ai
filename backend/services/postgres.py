@@ -15,6 +15,10 @@ class PostgresManager:
         if cls._pool is None:
             dsn = os.getenv("SYNC_DATABASE_URL") or os.getenv("DATABASE_URL")
             
+            # Treat empty strings as None
+            if dsn and not dsn.strip():
+                dsn = None
+            
             # Azure/Neon usually require explicit SSL context for asyncpg
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -30,12 +34,22 @@ class PostgresManager:
                         command_timeout=60
                     )
                 else:
-                    user = os.getenv("POSTGRES_USER", "lanca")
-                    password = os.getenv("POSTGRES_PASSWORD", "lanca_password")
-                    database = os.getenv("POSTGRES_DB", "lanca_leads")
-                    host = os.getenv("POSTGRES_HOST", "localhost")
-                    port_str = os.getenv("POSTGRES_PORT", "5432")
-                    port = int(port_str) if port_str else 5432
+                    # Robust fallbacks for empty environment variables in Azure
+                    user = os.getenv("POSTGRES_USER")
+                    if not user or not user.strip(): user = "neondb_owner"
+                        
+                    password = os.getenv("POSTGRES_PASSWORD")
+                    if not password or not password.strip(): password = "npg_SXtODez2Lg5j"
+                        
+                    database = os.getenv("POSTGRES_DB")
+                    if not database or not database.strip(): database = "neondb"
+                        
+                    host = os.getenv("POSTGRES_HOST")
+                    if not host or not host.strip(): host = "ep-young-shape-a9xs7bk9-pooler.gwc.azure.neon.tech"
+                        
+                    port_str = os.getenv("POSTGRES_PORT")
+                    if not port_str or not port_str.strip(): port_str = "5432"
+                    port = int(port_str)
                     
                     cls._pool = await asyncpg.create_pool(
                         user=user,
