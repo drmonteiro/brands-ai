@@ -176,7 +176,6 @@ SCORING GUIDE:
 
 IMPORTANT: If there is NO evidence the brand has a physical store/showroom in {target_city}, set city_match to false and cap score at 4.
 IMPORTANT: If the brand is clearly ultra-luxury (suits €3000+, Savile Row bespoke), cap score at 5 — they are above our target range.
-IMPORTANT: If the brand ONLY does made-to-measure/bespoke with NO ready-to-wear or own label collection, set is_bespoke_only to true.
 IMPORTANT: If the website is APPOINTMENT-ONLY (you must "book an appointment" to see products), DO NOT exclude them, but set appointment_only to true and reduce score by 2.
 IMPORTANT: Set prices_visible to true ONLY if actual product prices (€, £, $) are shown on the website. If prices are hidden or "price on request", set to false and REDUCE score by 2 points.
 BE INCLUSIVE: If the brand sells any kind of menswear (suits, trousers, waistcoats), is headquartered in {target_city}, and has visible prices, give it at least a score of 5.
@@ -258,10 +257,9 @@ async def deep_analyze_batch(
     3. SEMANTIC FIT: Evaluate how closely the brand matches the "Golden Profile".
     4. PRICE EXTRACTION: Find actual prices for suits, jackets AND trousers separately. Convert to EUR if in another currency.
     5. PRESENCE VALIDATION: If you cannot confirm the brand has a physical presence in {target_city}, EXCLUDE it. DO NOT exclude it if headquartered elsewhere, as long as they have a store.
-    6. EXCLUDE BESPOKE-ONLY: If the brand ONLY offers made-to-measure/bespoke with NO ready-to-wear, own label, or wholesale collections, EXCLUDE it.
-    7. APPOINTMENT-ONLY PENALTY: If the brand's website requires booking an appointment to see products, DO NOT exclude it, but reduce fitScore by 20 points.
-    8. PRICE VISIBILITY & NOTES: Se não houver preços no site, MAS houver indicação como "prices starting at $1500", preenche o "avgPrice" com esse valor, MAS OBRIGATORIAMENTE coloca no campo "priceNote" o texto "A partir de [VALOR]". Se nem isso estiver presente (ou seja, preços 100% indisponíveis), no campo "priceNote" escreve estritamente a frase: "O site não contém os preços dos fatos", e coloca o "avgPrice" como 0. NUNCA inventes ou deduzas o "avgPrice" por ti próprio — se não há provas do preço no texto, devolve sempre 0. 
-    9. BE INCLUSIVE: Include ALL brands that sell menswear (suits, trousers, waistcoats), HAVE A STORE in {target_city}, have up to 20 stores, and are within the target price ranges.
+    6. APPOINTMENT-ONLY PENALTY: If the brand's website requires booking an appointment to see products, DO NOT exclude it, but reduce fitScore by 20 points.
+    7. PRICE VISIBILITY & NOTES: Se não houver preços no site, MAS houver indicação como "prices starting at $1500", preenche o "avgPrice" com esse valor, MAS OBRIGATORIAMENTE coloca no campo "priceNote" o texto "A partir de [VALOR]". Se nem isso estiver presente (ou seja, preços 100% indisponíveis), no campo "priceNote" escreve estritamente a frase: "O site não contém os preços dos fatos", e coloca o "avgPrice" como 0. NUNCA inventes ou deduzas o "avgPrice" por ti próprio — se não há provas do preço no texto, devolve sempre 0. 
+    8. BE INCLUSIVE: Include ALL brands that sell menswear (suits, trousers, waistcoats), HAVE A STORE in {target_city}, have up to 20 stores, and are within the target price ranges.
     
     FORMAT: Return ONLY a JSON array:
     [
@@ -578,7 +576,6 @@ async def validation_node(
         # Filter by triage score >= 5 (lowered to get more brands)
         triage_passed = []
         city_rejected_count = 0
-        bespoke_only_count = 0
         appointment_rejected_count = 0
         no_price_penalized_count = 0
         for content, result in zip(triage_candidates, triage_results):
@@ -598,11 +595,6 @@ async def validation_node(
                 appointment_rejected_count += 1
                 score -= 2
             
-            # Skip brands that ONLY do bespoke/made-to-measure
-            if is_bespoke_only:
-                bespoke_only_count += 1
-                continue
-            
             # Penalize brands without visible prices
             if not prices_visible:
                 score -= 1  # Soft penalty — premium boutiques often hide prices
@@ -614,10 +606,6 @@ async def validation_node(
         if city_rejected_count > 0:
             new_progress.append(
                 f"   🏙️ {city_rejected_count} rejeitados por ausência de lojas em {target_city}"
-            )
-        if bespoke_only_count > 0:
-            new_progress.append(
-                f"   ✂️ {bespoke_only_count} descartados (só fazem feitos à medida, sem RTW/own label)"
             )
         if appointment_rejected_count > 0:
             new_progress.append(
