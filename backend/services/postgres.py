@@ -34,18 +34,18 @@ class PostgresManager:
                         command_timeout=60
                     )
                 else:
-                    # Robust fallbacks for empty environment variables in Azure
+                    # Fallbacks for local/development use (NOT hardcoding production secrets)
                     user = os.getenv("POSTGRES_USER")
-                    if not user or not user.strip(): user = "neondb_owner"
+                    if not user or not user.strip(): user = "lanca"
                         
                     password = os.getenv("POSTGRES_PASSWORD")
-                    if not password or not password.strip(): password = "npg_SXtODez2Lg5j"
+                    if not password or not password.strip(): password = "lanca_password"
                         
                     database = os.getenv("POSTGRES_DB")
-                    if not database or not database.strip(): database = "neondb"
+                    if not database or not database.strip(): database = "lanca_leads"
                         
                     host = os.getenv("POSTGRES_HOST")
-                    if not host or not host.strip(): host = "ep-young-shape-a9xs7bk9-pooler.gwc.azure.neon.tech"
+                    if not host or not host.strip(): host = "localhost"
                         
                     port_str = os.getenv("POSTGRES_PORT")
                     if not port_str or not port_str.strip(): port_str = "5432"
