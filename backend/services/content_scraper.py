@@ -16,6 +16,54 @@ from firecrawl import FirecrawlApp
 import json
 
 
+import json
+from config import Config
+from services.extraction.orchestrator import full_site_extraction_flow
+from services.crawl4ai_client import get_crawl4ai_client
+
+async def batch_extract_with_crawl4ai(urls: List[str]) -> List[ExtractedContent]:
+    """
+    Novo pipeline Crawl4AI (Self-hosted) com descoberta multi-página.
+    """
+    if not urls:
+        return []
+    
+    print(f"[SCRAPER] Using Crawl4AI Multi-page Pipeline for {len(urls)} URLs...")
+    results = []
+    
+    async for client in get_crawl4ai_client():
+        # Semaphore para evitar sobrecarga do container Docker (máx 3 sites simultâneos)
+        sem = asyncio.Semaphore(3)
+        
+        async def process_site(url):
+            async with sem:
+                try:
+                    # O orquestrador já faz discovery, scrape de 5 produtos, stores e about
+                    data, tokens, homepage_md = await full_site_extraction_flow(client, url)
+                    
+                    # Importante: Mantemos o markdown da homepage no .content 
+                    # para que o validador possa fazer o keyword scoring e triage LLM.
+                    # Mas anexamos o resumo estruturado para dar visibilidade ao Phase 2.
+                    structured_summary = f"=== CRAWL4AI STRUCTURED EXTRACTION ===\n"
+                    structured_summary += f"BRAND: {data.brand_name or 'Unknown'}\n"
+                    structured_summary += f"PRICES: {json.dumps([p.model_dump() for p in data.prices])}\n"
+                    structured_summary += f"STORES: {json.dumps([s.model_dump() for s in data.store_addresses])}\n"
+                    
+                    final_content = f"{homepage_md}\n\n{structured_summary}"
+                    
+                    return ExtractedContent(
+                        url=url,
+                        content=final_content,
+                        structured_data=data.model_dump(),
+                        extraction_method="crawl4ai"
+                    )
+                except Exception as e:
+                    print(f"[SCRAPER] Crawl4AI error for {url}: {e}")
+                    return ExtractedContent(url=url, content="", extraction_method="failed")
+
+        results = await asyncio.gather(*(process_site(u) for u in urls))
+    return results
+
 async def batch_extract_content(urls: List[str]) -> List[ExtractedContent]:
     """
     Batch extract content from multiple URLs.
@@ -25,6 +73,9 @@ async def batch_extract_content(urls: List[str]) -> List[ExtractedContent]:
     """
     if not urls:
         return []
+
+    if Config.USE_CRAWL4AI:
+        return await batch_extract_with_crawl4ai(urls)
 
     # Initialize results with empty content
     results = [ExtractedContent(url=url, content="") for url in urls]

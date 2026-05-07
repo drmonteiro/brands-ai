@@ -211,6 +211,7 @@ class BrandLead(BaseModel):
     fit_score: int = Field(default=0, alias="fitScore")
     price_note: Optional[str] = Field(default=None, alias="priceNote")
     material_composition: Optional[List[str]] = Field(default_factory=list, alias="materialComposition")
+    price_source: Optional[str] = Field(default=None, alias="priceSource")
 
     @field_validator('verification_log', 'clothing_types', 'store_locations', 'material_composition', mode='before')
     @classmethod
@@ -345,7 +346,9 @@ class ExtractedContent(BaseModel):
     query_origin: Optional[str] = None              # Which search axis found this
     language_detected: Optional[str] = None         # ISO 639-1 (e.g., "en", "it", "fr")
     price_confidence: float = 0.0                   # 0.0-1.0 confidence in price extraction
-    extraction_method: Optional[str] = None         # "tavily", "jina", "smart_nav"
+    extraction_method: Optional[str] = None         # "tavily", "jina", "smart_nav", "crawl4ai"
+    # [V4] Structured data from Crawl4AI pipeline
+    structured_data: Optional[Dict[str, Any]] = None
 class WorkflowResumeRequest(BaseModel):
     """Request body to resume a paused agent workflow"""
     thread_id: str

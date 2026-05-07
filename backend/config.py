@@ -21,6 +21,9 @@ class Config:
     # Fast model: GPT-5.1-codex-mini (or GPT-4o-mini as fallback) — used for cheap triage
     AZURE_OPENAI_DEPLOYMENT_FAST = os.getenv("AZURE_OPENAI_DEPLOYMENT_FAST", os.getenv("AZURE_OPENAI_DEPLOYMENT"))
     
+    # Extraction model for Structured Outputs (requires gpt-4o-mini or higher)
+    AZURE_OPENAI_EXTRACTION_DEPLOYMENT = os.getenv("AZURE_OPENAI_EXTRACTION_DEPLOYMENT", os.getenv("AZURE_OPENAI_DEPLOYMENT_FAST", "gpt-4o-mini"))
+    
     # Tavily
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
     
@@ -40,6 +43,10 @@ class Config:
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
     TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "+14155238886")
+    
+    # Crawl4AI
+    CRAWL4AI_BASE_URL = os.getenv("CRAWL4AI_BASE_URL", "http://localhost:11235")
+    USE_CRAWL4AI = os.getenv("USE_CRAWL4AI", "true").lower() == "true"
     
     # Database
     SYNC_DATABASE_URL = os.getenv("SYNC_DATABASE_URL")

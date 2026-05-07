@@ -273,7 +273,7 @@ KNOWN_CHAIN_DOMAINS = {
     "shein.com", "asos.com", "boohoo.com", "cos.com",
     
     # Mid-range chains (too big for Lança partnership)
-    "suitsupply.com", "mossbros.com", "charlestyrwhitt.com",
+    "suitsupply.com", "boggi.com", "boggi.it", "mossbros.com", "charlestyrwhitt.com",
     "tmlewin.com", "tmlewin.co.uk", "charlesyrwhitt.co.uk",
     "hugoboss.com", "boss.com", "tedbaker.com", "reiss.com",
     "massimodutti.com", "jcrew.com", "brooksbrothers.com",

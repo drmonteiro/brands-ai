@@ -749,6 +749,7 @@ async def validation_node(
                     passes_constraints=True,
                     quality_score=getattr(content_obj, "quality_score", 0) if content_obj else 0,
                     query_origin=getattr(content_obj, "query_origin", "Unknown") if content_obj else "Unknown",
+                    price_source=data.get("priceSource") or (content_obj.structured_data.get("price_source") if content_obj and content_obj.structured_data else None),
                 )
             )
 

@@ -32,6 +32,7 @@ def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
         api_version=Config.AZURE_OPENAI_API_VERSION,
         deployment_name=deployment,
         temperature=safe_temperature,
+        max_tokens=12000,
     )
 
 def get_tavily_client() -> TavilyClient:

@@ -20,6 +20,7 @@ python-dotenv
 httpx
 aiohttp
 beautifulsoup4
+selectolax>=0.3.21
 
 # Database (PostgreSQL)
 asyncpg
@@ -29,7 +30,7 @@ pgvector
 langgraph-checkpoint-postgres
 
 # Extraction Engines
-firecrawl-py
+crawl4ai>=0.8.5
 exa-py
 gunicorn
 

@@ -18,5 +18,20 @@ services:
       timeout: 5s
       retries: 5
 
+  crawl4ai:
+    image: unclecode/crawl4ai:0.8.5
+    container_name: crawl4ai
+    ports:
+      - "11235:11235"
+    shm_size: 1gb
+    mem_limit: 2g
+    mem_reservation: 1g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
