@@ -33,5 +33,25 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lanca-api
+    depends_on:
+      db:
+        condition: service_healthy
+      crawl4ai:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - USE_CRAWL4AI=True
+      - CRAWL4AI_API_URL=http://crawl4ai:11235
+    restart: always
+
+
 volumes:
   postgres_data:
