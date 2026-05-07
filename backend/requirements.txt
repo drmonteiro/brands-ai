@@ -6,6 +6,7 @@ python-multipart
 # LangChain & LLM
 langchain
 langchain-openai
+langchain-community
 langgraph
 
 # Tavily Search
