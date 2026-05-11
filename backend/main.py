@@ -2,6 +2,7 @@
 FastAPI Backend for Confeções Lança Lead Generation
 """
 import logging
+import os
 import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +30,23 @@ for noisy in ("httpx", "httpcore", "urllib3", "openai", "exa_py", "asyncio", "ps
 
 logger = logging.getLogger("api")
 
+
+def _cors_origins() -> list:
+    """Allow explicit deploy URLs via CORS_ORIGINS (comma-separated) plus defaults."""
+    defaults = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://ambitious-coast-0f9176703.1.azurestaticapps.net",
+    ]
+    extra = os.getenv("CORS_ORIGINS", "")
+    if extra.strip():
+        for o in extra.split(","):
+            u = o.strip()
+            if u and u not in defaults:
+                defaults.append(u)
+    return defaults
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -46,12 +64,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_origins = _cors_origins()
+logger.info("CORS allow_origins: %s", _origins)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://ambitious-coast-0f9176703.1.azurestaticapps.net"
-    ],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

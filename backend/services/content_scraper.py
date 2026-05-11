@@ -16,9 +16,40 @@ import os
 import json
 from config import Config
 from services.extraction.orchestrator import full_site_extraction_flow
-from services.crawl4ai_client import get_crawl4ai_client
+from services.crawl4ai_client import get_crawl4ai_client, Crawl4AIClient
 
 logger = logging.getLogger(__name__)
+
+# Populated on first Crawl4AI health probe when USE_CRAWL4AI=true (True=up, False=unreachable/broken).
+_crawl4ai_health_cache: Optional[bool] = None
+
+
+async def _probe_crawl4ai_health() -> bool:
+    """Single HTTP probe; does not use cache."""
+    client = Crawl4AIClient()
+    try:
+        return await client.health_check()
+    finally:
+        await client.close()
+
+
+async def crawl4ai_is_primary_extractor() -> bool:
+    """
+    True only when USE_CRAWL4AI is enabled and the remote Crawl4AI service passed a health check.
+    Used to skip redundant Firecrawl steps when Crawl4AI actually owns scraping.
+    """
+    global _crawl4ai_health_cache
+    if not Config.USE_CRAWL4AI:
+        return False
+    if _crawl4ai_health_cache is None:
+        _crawl4ai_health_cache = await _probe_crawl4ai_health()
+        if not _crawl4ai_health_cache:
+            logger.warning(
+                "[SCRAPER] Crawl4AI at %s failed health check (common cause: Playwright/Chromium "
+                "not installed in the Crawl4AI container). Using Firecrawl + Jina for this process.",
+                Config.CRAWL4AI_BASE_URL,
+            )
+    return _crawl4ai_health_cache
 
 
 # ============================================================================
@@ -103,19 +134,9 @@ async def batch_extract_with_crawl4ai(urls: List[str]) -> List[ExtractedContent]
         results = await asyncio.gather(*(process_site(u) for u in urls))
     return results
 
-async def batch_extract_content(urls: List[str]) -> List[ExtractedContent]:
-    """
-    Batch extract content from multiple URLs.
-    PRIORITY:
-    1. Firecrawl Scrape (JS rendering, clean Markdown, max 15.000 chars)
-    2. Jina Reader (Reliable fallback for any failures)
-    """
-    if not urls:
-        return []
 
-    if Config.USE_CRAWL4AI:
-        return await batch_extract_with_crawl4ai(urls)
-
+async def _batch_extract_firecrawl_jina(urls: List[str]) -> List[ExtractedContent]:
+    """Firecrawl batch scrape (if configured) then Jina Reader for gaps."""
     # Legacy Firecrawl path (circuit-breaker protected)
     results = [ExtractedContent(url=url, content="") for url in urls]
 
@@ -193,6 +214,21 @@ async def batch_extract_content(urls: List[str]) -> List[ExtractedContent]:
                         break
 
     return results
+
+
+async def batch_extract_content(urls: List[str]) -> List[ExtractedContent]:
+    """
+    Batch extract content from multiple URLs.
+    When USE_CRAWL4AI is true, Crawl4AI is used only if its /health succeeds; otherwise
+    Firecrawl + Jina (same as legacy path) so production stays up when Chromium is missing.
+    """
+    if not urls:
+        return []
+
+    if await crawl4ai_is_primary_extractor():
+        return await batch_extract_with_crawl4ai(urls)
+
+    return await _batch_extract_firecrawl_jina(urls)
 
 
 async def enrich_content_with_prices(
@@ -275,8 +311,12 @@ async def enrich_content_with_prices(
                 pass
 
             # Fallback: Site Search with Firecrawl Extract (circuit-breaker protected)
-            # Skip entirely when Crawl4AI is active — prices come from the orchestrator
-            if not shop_link and not Config.USE_CRAWL4AI and not _firecrawl_breaker.should_skip():
+            # Skip when Crawl4AI is actually serving scrapes — prices come from the orchestrator
+            if (
+                not shop_link
+                and not await crawl4ai_is_primary_extractor()
+                and not _firecrawl_breaker.should_skip()
+            ):
                 try:
                     from firecrawl import FirecrawlApp
                     schema = {

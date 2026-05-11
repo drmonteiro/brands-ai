@@ -19,6 +19,7 @@ import { BrandCard } from "@/components/BrandCard";
 import { FilterPanel, ProspectFilters } from "@/components/FilterPanel";
 import { Button } from "@/components/ui/button";
 import { BrandLead } from "@/lib/types";
+import { apiUrl } from "@/lib/apiBase";
 
 interface CityData {
     city: string;
@@ -40,45 +41,63 @@ export default function SavedCitiesPage() {
     const [cityToDelete, setCityToDelete] = useState<string | null>(null);
 
     useEffect(() => { fetchCities(); }, []);
-    useEffect(() => { if (selectedCity) fetchProspectsForCity(selectedCity); }, [activeFilters]);
+
+    useEffect(() => {
+        if (!selectedCity) {
+            setProspects([]);
+            return;
+        }
+        let cancelled = false;
+        const load = async () => {
+            setIsLoadingProspects(true);
+            try {
+                const params = new URLSearchParams({ city: selectedCity, limit: "100" });
+                if (activeFilters.minStores) params.append("min_stores", activeFilters.minStores.toString());
+                if (activeFilters.maxStores) params.append("max_stores", activeFilters.maxStores.toString());
+                if (activeFilters.minPrice) params.append("min_price", activeFilters.minPrice.toString());
+                if (activeFilters.maxPrice) params.append("max_price", activeFilters.maxPrice.toString());
+                if (activeFilters.fitForLanca === "high") params.append("min_score", "70");
+                if (activeFilters.fitForLanca === "medium") params.append("min_score", "50");
+                const response = await fetch(apiUrl(`/api/prospects?${params.toString()}`));
+                if (!response.ok) {
+                    const t = await response.text().catch(() => "");
+                    throw new Error(t || `HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                if (!cancelled) setProspects(data.prospects || []);
+            } catch (e) {
+                console.error("[saved-cities] prospects fetch failed:", e);
+                toast.error(
+                    "Não foi possível carregar as marcas. Confirma NEXT_PUBLIC_API_URL (build) e CORS_ORIGINS no backend."
+                );
+                if (!cancelled) setProspects([]);
+            } finally {
+                if (!cancelled) setIsLoadingProspects(false);
+            }
+        };
+        load();
+        return () => { cancelled = true; };
+    }, [selectedCity, activeFilters]);
 
     const fetchCities = async () => {
         setIsLoadingCities(true);
         try {
-            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-            const response = await fetch(`${API_URL}/api/cities`);
+            const response = await fetch(apiUrl("/api/cities"));
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             setSavedCities(data.cities || []);
-        } catch { setSavedCities([]); }
-        finally { setIsLoadingCities(false); }
-    };
-
-    const fetchProspectsForCity = async (city: string) => {
-        setIsLoadingProspects(true);
-        if (selectedCity !== city) {
-            setActiveFilters({});
-            setSelectedCity(city);
+        } catch (e) {
+            console.error("[saved-cities] cities fetch failed:", e);
+            toast.error("Não foi possível carregar as cidades guardadas.");
+            setSavedCities([]);
+        } finally {
+            setIsLoadingCities(false);
         }
-        try {
-            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-            const params = new URLSearchParams({ city });
-            if (activeFilters.minStores) params.append("min_stores", activeFilters.minStores.toString());
-            if (activeFilters.maxStores) params.append("max_stores", activeFilters.maxStores.toString());
-            if (activeFilters.minPrice) params.append("min_price", activeFilters.minPrice.toString());
-            if (activeFilters.maxPrice) params.append("max_price", activeFilters.maxPrice.toString());
-            if (activeFilters.fitForLanca === 'high') params.append("min_score", "70");
-            if (activeFilters.fitForLanca === 'medium') params.append("min_score", "50");
-            const response = await fetch(`${API_URL}/api/prospects?${params.toString()}`);
-            const data = await response.json();
-            setProspects(data.prospects || []);
-        } catch { setProspects([]); }
-        finally { setIsLoadingProspects(false); }
     };
 
     const handleSendEmail = async (brandName: string, brandData: any) => {
         try {
-            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-            const response = await fetch(`${API_URL}/api/email/draft`, {
+            const response = await fetch(apiUrl("/api/email/draft"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ brandName, brandData }),
@@ -100,8 +119,7 @@ export default function SavedCitiesPage() {
         if (activeFilters.maxPrice) params.append("max_price", activeFilters.maxPrice.toString());
         if (activeFilters.fitForLanca === 'high') params.append("min_score", "70");
         if (activeFilters.fitForLanca === 'medium') params.append("min_score", "50");
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        window.open(`${API_URL}/api/export/csv?${params.toString()}`, '_blank');
+        window.open(apiUrl(`/api/export/csv?${params.toString()}`), "_blank");
     };
 
     const handleDeleteCity = async (e?: React.MouseEvent) => {
@@ -116,8 +134,10 @@ export default function SavedCitiesPage() {
     const confirmDeleteCity = async () => {
         if (!cityToDelete) return;
         try {
-            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-            const response = await fetch(`${API_URL}/api/cities/${encodeURIComponent(cityToDelete)}`, { method: 'DELETE' });
+            const response = await fetch(
+                apiUrl(`/api/cities/${encodeURIComponent(cityToDelete)}`),
+                { method: "DELETE" }
+            );
             if (response.ok) {
                 toast.success(`Cidade ${cityToDelete} eliminada.`);
                 setSelectedCity(null);
@@ -170,7 +190,10 @@ export default function SavedCitiesPage() {
                         return (
                             <button
                                 key={cityData.city}
-                                onClick={() => fetchProspectsForCity(cityData.city)}
+                                onClick={() => {
+                                    if (selectedCity !== cityData.city) setActiveFilters({});
+                                    setSelectedCity(cityData.city);
+                                }}
                                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-150 text-left mb-0.5 ${
                                     isActive
                                         ? "bg-[#111111] text-white"

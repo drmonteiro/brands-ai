@@ -73,6 +73,7 @@ jobs:
               {"name": "JINA_API_KEY",                    "value": "${{ secrets.JINA_API_KEY }}",                    "slotSetting": false},
               {"name": "EXA_API_KEY",                     "value": "${{ secrets.EXA_API_KEY }}",                     "slotSetting": false},
               {"name": "FIRECRAWL_API_KEY",               "value": "${{ secrets.FIRECRAWL_API_KEY }}",               "slotSetting": false},
+              {"name": "GOOGLE_PLACES_API_KEY",           "value": "${{ secrets.GOOGLE_PLACES_API_KEY }}",           "slotSetting": false},
               {"name": "POSTGRES_USER",                   "value": "${{ secrets.POSTGRES_USER }}",                   "slotSetting": false},
               {"name": "POSTGRES_PASSWORD",               "value": "${{ secrets.POSTGRES_PASSWORD }}",               "slotSetting": false},
               {"name": "POSTGRES_DB",                     "value": "${{ secrets.POSTGRES_DB }}",                     "slotSetting": false},
