@@ -19,7 +19,10 @@ services:
       retries: 5
 
   crawl4ai:
-    image: unclecode/crawl4ai:0.8.5
+    build:
+      context: ./crawl4ai
+      dockerfile: Dockerfile
+    image: lanca-crawl4ai:0.8.5-chromium
     container_name: crawl4ai
     ports:
       - "11235:11235"
@@ -49,7 +52,7 @@ services:
       - ./backend/.env
     environment:
       - USE_CRAWL4AI=True
-      - CRAWL4AI_API_URL=http://crawl4ai:11235
+      - CRAWL4AI_BASE_URL=http://crawl4ai:11235
     restart: always
 
 
