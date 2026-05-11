@@ -132,6 +132,7 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
   const storeLocations = parseJsonArray(brand.store_locations || brand.storeLocations);
   const materialComposition = parseJsonArray(brand.material_composition);
   const madeToMeasure = brand.made_to_measure ?? false;
+  const headquartersAddress = brand.headquarters_address || "";
 
   // Determine fit level from fit_score
   const getFitLevel = () => {
@@ -165,11 +166,18 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
     setImgErrors(prev => new Set(prev).add(idx));
   }, []);
 
-  // Format price
+  // Format price — always show numeric range only
   const formatPrice = () => {
-    if (priceNote) return priceNote;
-    if (priceEUR && priceEUR > 0) return `${Math.round(priceEUR)}€`;
-    if (priceUSD && priceUSD > 0) return `${Math.round(priceUSD)}$`;
+    if (priceNote) {
+      // If priceNote is already a clean range like "€500 - €1200", show it
+      const rangeMatch = priceNote.match(/€?\s*(\d+)\s*[-–]\s*€?\s*(\d+)/);
+      if (rangeMatch) return `€${rangeMatch[1]} - €${rangeMatch[2]}`;
+      // If priceNote is a single value like "€800"
+      const singleMatch = priceNote.match(/€?\s*(\d+)/);
+      if (singleMatch) return `€${singleMatch[1]}`;
+    }
+    if (priceEUR && priceEUR > 0) return `€${Math.round(priceEUR)}`;
+    if (priceUSD && priceUSD > 0) return `€${Math.round(priceUSD * 0.93)}`;
     return "N/A";
   };
 
@@ -310,6 +318,14 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
           </div>
         )}
 
+        {/* Email quick access */}
+        {contactEmail && (
+          <a href={`mailto:${contactEmail}`} className="flex items-center gap-2 mb-3 px-2.5 py-1.5 bg-blue-50 border border-blue-100 rounded-md hover:bg-blue-100 transition-colors w-fit">
+            <Mail className="h-3.5 w-3.5 text-blue-600" />
+            <span className="text-xs text-blue-700 font-medium">{contactEmail}</span>
+          </a>
+        )}
+
         {/* Description */}
         <p className={`text-sm text-muted-foreground leading-relaxed mb-4 ${!isExpanded ? 'line-clamp-2' : ''}`}>
           {description || "Sem descrição disponível."}
@@ -368,6 +384,17 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
                   {similarityExplanation && (
                     <p className="text-xs text-muted-foreground leading-relaxed">{similarityExplanation}</p>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* HQ Address */}
+            {headquartersAddress && (
+              <div>
+                <p className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">Sede</p>
+                <div className="flex items-start gap-2 bg-muted/50 rounded-lg p-3">
+                  <MapPin className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-muted-foreground leading-relaxed">{headquartersAddress}</p>
                 </div>
               </div>
             )}

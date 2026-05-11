@@ -66,6 +66,7 @@ jobs:
               {"name": "AZURE_OPENAI_ENDPOINT",           "value": "${{ secrets.AZURE_OPENAI_ENDPOINT }}",           "slotSetting": false},
               {"name": "AZURE_OPENAI_DEPLOYMENT",         "value": "${{ secrets.AZURE_OPENAI_DEPLOYMENT }}",         "slotSetting": false},
               {"name": "AZURE_OPENAI_DEPLOYMENT_FAST",    "value": "${{ secrets.AZURE_OPENAI_DEPLOYMENT_FAST }}",    "slotSetting": false},
+              {"name": "AZURE_OPENAI_EXTRACTION_DEPLOYMENT","value": "${{ secrets.AZURE_OPENAI_DEPLOYMENT_FAST }}",   "slotSetting": false},
               {"name": "AZURE_OPENAI_API_VERSION",        "value": "${{ secrets.AZURE_OPENAI_API_VERSION }}",        "slotSetting": false},
               {"name": "AZURE_OPENAI_EMBEDDING_DEPLOYMENT","value": "${{ secrets.AZURE_OPENAI_EMBEDDING_DEPLOYMENT }}","slotSetting": false},
               {"name": "TAVILY_API_KEY",                  "value": "${{ secrets.TAVILY_API_KEY }}",                  "slotSetting": false},

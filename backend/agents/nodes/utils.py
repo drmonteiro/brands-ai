@@ -1,32 +1,26 @@
 """
 Utility functions for LangGraph nodes.
 """
-from typing import List, Optional
+from typing import Optional
 import re
 from urllib.parse import urlparse
 from langchain_openai import AzureChatOpenAI
 from config import Config
-# TODO: Remove tavily entirely after confirming stability in production
-# from tavily import TavilyClient
+
 
 def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
     """
     Get Azure OpenAI LLM instance.
-    
+
     Args:
-        fast: If True, use the fast/cheap model (GPT-5.1-codex-mini) for triage.
-              If False, use the deep model (GPT-5.1) for final analysis.
-        temperature: Sampling temperature (lower = more deterministic)
-    
-    Returns:
-        AzureChatOpenAI instance configured for the selected model tier.
+        fast: If True, use GPT-5-mini for quick tasks. If False, use GPT-5.1 for deep analysis.
+        temperature: Sampling temperature (may be overridden for certain models).
     """
     deployment = Config.AZURE_OPENAI_DEPLOYMENT_FAST if fast else Config.AZURE_OPENAI_DEPLOYMENT
-    
-    # NEW: Newer Azure models (like gpt-5-mini) require temperature=1.0 
-    # and fail if 0.0 is provided. We force 1.0 to avoid the "Error 400"
+
+    # Newer Azure models require temperature=1.0 and fail if 0.0 is provided
     safe_temperature = 1.0 if "mini" in deployment or "gpt-5" in deployment else temperature
-    
+
     return AzureChatOpenAI(
         azure_endpoint=Config.AZURE_OPENAI_ENDPOINT,
         api_key=Config.AZURE_OPENAI_API_KEY,
@@ -36,26 +30,20 @@ def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
         max_tokens=12000,
     )
 
-def get_tavily_client():
-    """DEPRECATED: Tavily disabled. Contacts now come from HTML extraction."""
-    raise RuntimeError(
-        "Tavily is disabled. Use email_extractor + LLM extraction instead."
-    )
 
 async def get_exchange_rate() -> float:
-    """Fetch current EUR to USD exchange rate"""
-    # For now, use a fixed rate. In production, call an exchange rate API
+    """Fetch current EUR to USD exchange rate."""
     return 1.08
 
+
 def convert_eur_to_usd(eur: float, rate: float) -> float:
-    """Convert EUR to USD"""
     return eur * rate
 
+
 def normalize_url(url: str) -> str:
-    """Normalize URL for comparison to detect duplicates"""
+    """Normalize URL for comparison to detect duplicates."""
     if not url:
         return ""
-    
     try:
         normalized = url.lower().strip()
         normalized = re.sub(r'^https?://', '', normalized)
@@ -66,12 +54,11 @@ def normalize_url(url: str) -> str:
     except Exception:
         return url.lower().strip()
 
+
 def get_domain_from_url(url: str) -> str:
-    """
-    Extract base domain from URL.
-    E.g. https://www.tomjames.com/locations -> tomjames.com
-    """
-    if not url: return ""
+    """Extract base domain from URL."""
+    if not url:
+        return ""
     try:
         parsed = urlparse(url)
         domain = parsed.netloc

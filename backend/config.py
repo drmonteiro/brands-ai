@@ -14,72 +14,28 @@ class Config:
     AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
     AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
     AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
-    
-    # Model deployments — 2-tier strategy
-    # Deep model: GPT-5.1 — used for final analysis in small batches
     AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.1")
-    # Fast model: GPT-5-mini — used for cheap triage
     AZURE_OPENAI_DEPLOYMENT_FAST = os.getenv("AZURE_OPENAI_DEPLOYMENT_FAST", "gpt-5-mini")
-    
-    # Extraction model for Structured Outputs
-    AZURE_OPENAI_EXTRACTION_DEPLOYMENT = os.getenv("AZURE_OPENAI_EXTRACTION_DEPLOYMENT", "gpt-5-mini")
-    
-    # Tavily
-    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-    
-    # Firecrawl
-    FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
-    
-    # Resend
+
+    # Resend (email)
     RESEND_API_KEY = os.getenv("RESEND_API_KEY")
     FROM_EMAIL = os.getenv("FROM_EMAIL", "onboarding@resend.dev")
-    
+
     # LangSmith (optional)
     LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "false")
     LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY")
     LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "confecos-lanca")
-    
-    # Twilio WhatsApp
-    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-    TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "+14155238886")
-    
-    # Crawl4AI
-    CRAWL4AI_BASE_URL = os.getenv("CRAWL4AI_BASE_URL", "http://localhost:11235")
-    USE_CRAWL4AI = os.getenv("USE_CRAWL4AI", "true").lower() == "true"
-    
-    # Google Places API (New)
+
+    # Google Places API
     GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
-    
+
     # Database
     SYNC_DATABASE_URL = os.getenv("SYNC_DATABASE_URL")
-    
+
     @classmethod
     def is_langsmith_enabled(cls) -> bool:
         return cls.LANGCHAIN_TRACING_V2.lower() == "true" and cls.LANGCHAIN_API_KEY is not None
 
-
-# Current clients of Confeções Lança (for query generation)
-CURRENT_CLIENTS = [
-    {
-        "name": "Carlos Nieto",
-        "country": "Peru",
-        "description": "Premium menswear retailer in South America, focuses on European-quality suits",
-        "characteristics": ["Premium pricing", "European style", "South American market"],
-    },
-    {
-        "name": "Grupo Yes",
-        "country": "Spain/Portugal",
-        "description": "Multi-brand fashion group with focus on quality menswear",
-        "characteristics": ["Multi-brand", "Quality focus", "Iberian market"],
-    },
-    {
-        "name": "Hawes & Curtis",
-        "country": "United Kingdom",
-        "description": "British heritage menswear brand known for shirts and suits since 1913",
-        "characteristics": ["Heritage brand", "British style", "Premium quality", "Over 100 years history"],
-    },
-]
 
 # Ideal client profile for Confeções Lança
 CONFECOS_LANCA_PROFILE = """
@@ -96,7 +52,6 @@ IDEAL CLIENT PROFILE:
 - Brands that sell tailored suits AND/OR separate pieces (jackets, trousers, waistcoats) with a tailoring/sartorial identity
 - Brands with own label collections or interested in private label/white-label production
 - Value quality European manufacturing at competitive prices
-- MUST be headquartered in the target city (not just having a physical store there)
 
 WHAT WE OFFER:
 - Quality suits, trousers, and waistcoats manufactured in Portugal

@@ -1,6 +1,6 @@
 /**
  * Frontend types for Confeções Lança
- * These mirror the Python/SQLite backend response format (snake_case)
+ * These mirror the Python/PostgreSQL backend response format (snake_case)
  */
 
 export interface BrandLead {
@@ -17,15 +17,10 @@ export interface BrandLead {
   business_model?: string;
   company_overview?: string;
   detailed_description?: string;
-  store_locations?: string;  // JSON string from backend
+  store_locations?: string;
   material_composition?: string;
-  sustainability_certs?: string;
   made_to_measure?: boolean;
-  heritage_brand?: boolean;
-  quality_score?: number;
-  similarity_score?: number;
-  location_score?: number;
-  location_quality?: string;
+  wool_percentage?: string;
   final_score?: number;
   fit_score?: number;
   most_similar_client?: string;
@@ -33,6 +28,7 @@ export interface BrandLead {
   status?: string;
   notes?: string;
   price_note?: string;
+  headquarters_address?: string;
   discovered_at?: string;
   updated_at?: string;
   contact_name?: string;
@@ -48,14 +44,13 @@ export interface BrandLead {
     manager_name: string;
   }[];
 
-  // Legacy camelCase aliases (for backward compatibility)
+  // Legacy camelCase aliases (for backward compatibility with old data)
   websiteUrl?: string;
   storeCount?: number;
   averageSuitPriceUSD?: number;
   avgSuitPriceEUR?: number;
   originCountry?: string;
   verified?: boolean;
-  clothingTypes?: string[];
   detailedDescription?: string;
   companyOverview?: string;
   storeLocations?: string[];
