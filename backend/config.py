@@ -13,16 +13,16 @@ class Config:
     AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
     AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
     AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
-    AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
+    AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
     
     # Model deployments — 2-tier strategy
-    # Deep model: GPT-5.1 (or GPT-4o as fallback) — used for final analysis in small batches
-    AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")  # Primary/deep model
-    # Fast model: GPT-5.1-codex-mini (or GPT-4o-mini as fallback) — used for cheap triage
-    AZURE_OPENAI_DEPLOYMENT_FAST = os.getenv("AZURE_OPENAI_DEPLOYMENT_FAST", os.getenv("AZURE_OPENAI_DEPLOYMENT"))
+    # Deep model: GPT-5.1 — used for final analysis in small batches
+    AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.1")
+    # Fast model: GPT-5-mini — used for cheap triage
+    AZURE_OPENAI_DEPLOYMENT_FAST = os.getenv("AZURE_OPENAI_DEPLOYMENT_FAST", "gpt-5-mini")
     
-    # Extraction model for Structured Outputs (requires gpt-4o-mini or higher)
-    AZURE_OPENAI_EXTRACTION_DEPLOYMENT = os.getenv("AZURE_OPENAI_EXTRACTION_DEPLOYMENT", os.getenv("AZURE_OPENAI_DEPLOYMENT_FAST", "gpt-4o-mini"))
+    # Extraction model for Structured Outputs
+    AZURE_OPENAI_EXTRACTION_DEPLOYMENT = os.getenv("AZURE_OPENAI_EXTRACTION_DEPLOYMENT", "gpt-5-mini")
     
     # Tavily
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
@@ -47,6 +47,9 @@ class Config:
     # Crawl4AI
     CRAWL4AI_BASE_URL = os.getenv("CRAWL4AI_BASE_URL", "http://localhost:11235")
     USE_CRAWL4AI = os.getenv("USE_CRAWL4AI", "true").lower() == "true"
+    
+    # Google Places API (New)
+    GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
     
     # Database
     SYNC_DATABASE_URL = os.getenv("SYNC_DATABASE_URL")

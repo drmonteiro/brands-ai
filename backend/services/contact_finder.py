@@ -1,19 +1,23 @@
 """
 Contact Finder Service — Cascading approach to find C-level contacts.
 
-Strategy (cheapest to most expensive):
-1. Already extracted from site (free — already done in validator)
-2. Tavily Search for LinkedIn profiles (already paid — no extra cost)
-3. [Future] Apollo.io / RocketReach API (paid, high accuracy)
+Strategy:
+1. Owner name + role extracted via LLM from site content (free — done in orchestrator)
+2. Email extracted from HTML via regex (free — done in email_extractor)
+3. LinkedIn extracted from HTML when present (free — done in email_extractor)
 
-V2: Added cross-validation to ensure contact_name matches linkedin profile.
+V3: Tavily DISABLED — contacts now come from scraping + LLM extraction.
+    Tavily removal saves ~$30-100/month and eliminates a dependency.
+    TODO: Remove Tavily module entirely after 1 week of stable production.
 """
 
 import asyncio
 import json
 import re
 from typing import Dict, Optional, List
-from agents.nodes.utils import get_llm, get_tavily_client
+from agents.nodes.utils import get_llm
+# TODO: Remove tavily import entirely after confirming stability
+# from agents.nodes.utils import get_tavily_client
 
 
 def _extract_name_from_linkedin_url(url: str) -> Optional[str]:
@@ -38,44 +42,55 @@ def _extract_name_from_linkedin_url(url: str) -> Optional[str]:
         return None
 
 
+def _normalize_name_parts(name: str) -> list:
+    """
+    Normalize a name into lowercase ASCII parts for matching.
+    Handles accented characters, hyphens, URL-encoded chars.
+    """
+    import unicodedata
+    nfkd = unicodedata.normalize('NFKD', name)
+    ascii_name = nfkd.encode('ASCII', 'ignore').decode('ASCII')
+    cleaned = re.sub(r'[^a-z0-9\s]', ' ', ascii_name.lower())
+    parts = [p for p in cleaned.split() if len(p) > 1]
+    return parts
+
+
 def _names_match(name1: Optional[str], name2: Optional[str]) -> bool:
     """
     Check if two names refer to the same person.
-    Uses fuzzy matching: checks if key parts of both names overlap.
-    E.g. "Nathan Pearce" vs "nathan pearce" → True
-         "Nathan Pearce" vs "john smith" → False
-         "David M. Shepherd" vs "david shepherd" → True
+    Uses containment: all significant parts of the shorter name
+    must appear somewhere in the longer string.
+
+    Handles LinkedIn slug formats:
+    - "Charlie Casely-Hayford" vs "charlie casely hayford" → True
+    - "Lloyd Stratton" vs "lloydstratton" → True
+    - "Mark Marengo" vs "markmarengo savilerow bespoke" → True
+    - "Erdal Matiloğlu" vs "erdal matilo%C4%9Flu" → True
+    - "John Smith" vs "jane doe" → False
     """
     if not name1 or not name2:
         return False
 
-    def normalize(n: str) -> set:
-        # Lowercase, remove punctuation, split into parts
-        n = n.lower().strip()
-        n = re.sub(r'[^a-z\s]', '', n)
-        parts = set(n.split())
-        # Remove single-letter initials (like "M" in "David M. Shepherd")
-        parts = {p for p in parts if len(p) > 1}
-        return parts
-
-    parts1 = normalize(name1)
-    parts2 = normalize(name2)
+    parts1 = _normalize_name_parts(name1)
+    parts2 = _normalize_name_parts(name2)
 
     if not parts1 or not parts2:
         return False
 
-    # Check overlap: at least 2 parts match, OR the last name matches
-    overlap = parts1 & parts2
-    
-    # If both have a last name and it matches, that's good enough
-    if len(overlap) >= 1:
-        # Check if the overlapping part includes a surname (longest word)
-        longest1 = max(parts1, key=len)
-        longest2 = max(parts2, key=len)
-        if longest1 == longest2:
-            return True
-    
-    # At least 2 name parts must match
+    # Clean the second name into a single slug for containment check
+    slug1 = re.sub(r'[^a-z0-9\s]', ' ', name1.lower())
+    slug2 = re.sub(r'[^a-z0-9\s]', ' ', name2.lower())
+
+    # Strategy 1: all parts of name1 found in slug2 (word boundary or substring)
+    all_in_slug2 = all(part in slug2 for part in parts1)
+    # Strategy 2: all parts of name2 found in slug1
+    all_in_slug1 = all(part in slug1 for part in parts2)
+
+    if all_in_slug2 or all_in_slug1:
+        return True
+
+    # Strategy 3: set intersection (at least 2 parts match)
+    overlap = set(parts1) & set(parts2)
     return len(overlap) >= 2
 
 
@@ -104,19 +119,21 @@ async def find_contacts_for_brand(
     print(f"[CONTACT-FINDER] 🔍 Searching contacts for: {brand_name} ({city})")
 
     # ================================================================
-    # STEP 1: Tavily Search — LinkedIn + Google for founder/CEO/owner
+    # Tavily DISABLED — contacts now come from scraping + LLM extraction.
+    # The existing_contact dict already contains owner_name, email, and
+    # LinkedIn extracted from the HTML by email_extractor + LLM.
     # ================================================================
-    contact_info = await _search_tavily_for_contacts(brand_name, brand_url, city, country)
+    # TODO: Remove _search_tavily_for_contacts entirely after 1 week
+    # contact_info = await _search_tavily_for_contacts(brand_name, brand_url, city, country)
+    contact_info = _empty_contact()
 
-    # Merge with existing contact info (prefer new data over empty fields)
+    # Merge with existing contact info (prefer existing data — already extracted from site)
     if existing_contact:
         for key in ["contact_name", "contact_role", "contact_email", "contact_phone", "contact_linkedin"]:
-            if not contact_info.get(key) and existing_contact.get(key):
+            if existing_contact.get(key):
                 contact_info[key] = existing_contact[key]
 
-    # ================================================================
-    # CROSS-VALIDATION: Ensure name matches LinkedIn profile
-    # ================================================================
+    # Cross-validation: ensure name matches LinkedIn profile
     contact_info = _cross_validate_name_linkedin(contact_info, brand_name)
 
     if contact_info.get("contact_name"):
@@ -164,10 +181,12 @@ async def _search_tavily_for_contacts(
     country: str,
 ) -> Dict:
     """
-    Use Tavily to search for LinkedIn profiles and other public sources
-    for the brand's C-level contacts.
+    DEPRECATED: Tavily disabled. This function is dead code kept for reference.
+    TODO: Remove entirely after 1 week of stable production.
     """
-    client = get_tavily_client()
+    return _empty_contact()
+    # --- Dead code below (kept for reference) ---
+    client = get_tavily_client()  # noqa: F811
 
     # Extract domain for more targeted searches
     domain = brand_url.replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]

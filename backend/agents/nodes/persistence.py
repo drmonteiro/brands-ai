@@ -3,12 +3,15 @@ Node 4: Persistence Node
 Finalizes selected brands and saves them to PostgreSQL with full scoring.
 Includes Contact Finder cascade for C-level discovery.
 """
+import logging
 from typing import List, Dict, Any, Union
 from models import ProspectorState, BrandLead
 from services.database import save_prospect, get_existing_urls_for_city, get_prospect_id_by_url, update_prospect_contact
-from services.vector_db import calculate_prospect_score
+from services.scoring import calculate_prospect_score
 from services.contact_finder import find_contacts_for_brand
 from .utils import normalize_url
+
+logger = logging.getLogger("node.persistence")
 
 # ============================================================================
 # COUNTRY NAME → ISO CODE MAPPING
@@ -57,13 +60,17 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
     potential_brands = state.potential_brands if hasattr(state, "potential_brands") else state.get("potential_brands", [])
     exchange_rate = state.exchange_rate if hasattr(state, "exchange_rate") else state.get("exchange_rate", 1.08)
     
-    print(f"[FILTER] Saving {len(potential_brands)} brands for {target_city}...")
+    logger.info("┌─── NODE 4: PERSISTENCE ───────────────────────────")
+    logger.info("│ Brands to save: %d for %s", len(potential_brands), target_city)
     new_progress = []
     
     if not potential_brands:
+        logger.info("│ No brands to save — finishing")
+        logger.info("└──────────────────────────────────────────────────")
         return {"verified_brands": [], "progress": ["🎯 RESULTADO FINAL: 0 marcas encontradas"]}
     
     existing_urls = await get_existing_urls_for_city(target_city)
+    logger.info("│ Existing URLs in DB for %s: %d", target_city, len(existing_urls))
     new_progress.append(f"\n💾 Guardando {len(potential_brands)} marcas na base de dados...")
     
     saved_count, duplicate_count, verified_brands = 0, 0, []
@@ -105,7 +112,7 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
                         new_progress.append(f"   👤 {brand_name}: Contactos actualizados")
             except Exception as e:
                 brand_name_safe = brand.name if hasattr(brand, "name") else brand.get("name", "Unknown")
-                print(f"[PERSISTENCE] Enrichment error for {brand_name_safe}: {e}")
+                logger.warning("│ Contact enrichment error for %s: %s", brand_name_safe, e)
             
             duplicate_count += 1
             continue
@@ -117,6 +124,10 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
             brand_obj, brand_dict = BrandLead(**brand), brand
             
         # Build initial prospect dict
+        # Owner name from LLM extraction takes precedence for contact_name
+        owner_name = brand_dict.get("ownerName") or brand_dict.get("owner_name")
+        owner_role = brand_dict.get("ownerRole") or brand_dict.get("owner_role")
+
         prospect_dict = {
             "name": brand_dict["name"],
             "website_url": brand_dict.get("websiteUrl") or brand_dict.get("website_url"),
@@ -130,16 +141,43 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
             "description": brand_dict.get("companyOverview") or brand_dict.get("company_overview", ""),
             "detailed_description": brand_dict.get("detailedDescription") or brand_dict.get("detailed_description", ""),
             "store_locations": brand_dict.get("storeLocations") or brand_dict.get("store_locations", []),
-            "fit_score": brand_dict.get("fitScore") or brand_dict.get("fit_score", 0),
-            "material_composition": [brand_dict.get("woolPercentage") or brand_dict.get("wool_percentage")] if (brand_dict.get("woolPercentage") or brand_dict.get("wool_percentage")) else [],
-            "made_to_measure": brand_dict.get("madeToMeasure") or brand_dict.get("made_to_measure", False),
-            "contact_name": brand_dict.get("contactName") or brand_dict.get("contact_name"),
-            "contact_role": brand_dict.get("contactRole") or brand_dict.get("contact_role"),
+            "fit_score": (
+                brand_dict.get("fitScore")
+                if brand_dict.get("fitScore") is not None
+                else brand_dict.get("fit_score", 0)
+            ),
+            "material_composition": (
+                [brand_dict.get("woolPercentage")]
+                if brand_dict.get("woolPercentage") is not None
+                and brand_dict.get("woolPercentage") != ""
+                else (
+                    [brand_dict.get("wool_percentage")]
+                    if brand_dict.get("wool_percentage") is not None
+                    and brand_dict.get("wool_percentage") != ""
+                    else []
+                )
+            ),
+            "made_to_measure": (
+                brand_dict["madeToMeasure"]
+                if "madeToMeasure" in brand_dict
+                else brand_dict.get("made_to_measure")
+            ),
+            "contact_name": brand_dict.get("contactName") or brand_dict.get("contact_name") or owner_name,
+            "contact_role": brand_dict.get("contactRole") or brand_dict.get("contact_role") or owner_role,
             "contact_email": brand_dict.get("contactEmail") or brand_dict.get("contact_email"),
             "contact_phone": brand_dict.get("contactPhone") or brand_dict.get("contact_phone"),
             "contact_linkedin": brand_dict.get("contactLinkedin") or brand_dict.get("contact_linkedin"),
             "headquarters_address": brand_dict.get("headquartersAddress") or brand_dict.get("headquarters_address"),
             "price_note": brand_dict.get("priceNote") or brand_dict.get("price_note"),
+            "product_images": brand_dict.get("productImages") or brand_dict.get("product_images", []),
+            "city_presence_type": brand_dict.get("city_presence_type")
+            or brand_dict.get("cityPresenceType")
+            or "unknown",
+            "wool_percentage": (
+                brand_dict.get("woolPercentage")
+                if "woolPercentage" in brand_dict
+                else brand_dict.get("wool_percentage")
+            ),
         }
         
         # ============================================================
@@ -166,7 +204,7 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
                     prospect_dict[key] = contact_result[key]
             new_progress.append(f"   👤 {prospect_dict['name']}: {contact_result.get('contact_name', '?')} ({contact_result.get('contact_role', '?')})")
         except Exception as e:
-            print(f"[CONTACT-FINDER] Error for {prospect_dict['name']}: {e}")
+            logger.warning("│ Contact finder error for %s: %s", prospect_dict["name"], e)
         
         try:
             scores, similar_clients = await calculate_prospect_score(prospect_dict)
@@ -176,13 +214,25 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
                 saved_count += 1
                 existing_urls.add(norm_url)
                 verified_brands.append(brand_obj)
+                logger.info("│ SAVED: %s (%s) — score=%.0f", prospect_dict["name"], prospect_dict["website_url"], scores.get("final_score", 0) if isinstance(scores, dict) else 0)
         except Exception as e:
-            print(f"[FILTER] Error saving {brand_dict.get('name')}: {e}")
+            logger.error("│ Error saving %s: %s", brand_dict.get("name"), e)
     
+    # Cap output at 30 brands, minimum threshold 55/100
+    MAX_OUTPUT_BRANDS = 30
+    MIN_SCORE_THRESHOLD = 55
+    if len(verified_brands) > MAX_OUTPUT_BRANDS:
+        verified_brands = verified_brands[:MAX_OUTPUT_BRANDS]
+        logger.info("│ Capped to %d brands", MAX_OUTPUT_BRANDS)
+
+    logger.info("│ Results: %d saved, %d duplicates skipped", saved_count, duplicate_count)
+    logger.info("│ FINAL: %d verified brands", len(verified_brands))
+    logger.info("└──────────────────────────────────────────────────")
     new_progress.append(f"   ✅ Guardados: {saved_count} novos")
-    if duplicate_count > 0: new_progress.append(f"   ⏭️ Duplicados ignorados: {duplicate_count}")
+    if duplicate_count > 0:
+        new_progress.append(f"   ⏭️ Duplicados ignorados: {duplicate_count}")
     new_progress.append(f"\n🎯 RESULTADO FINAL: {len(verified_brands)} marcas encontradas")
-    
+
     return {
         "verified_brands": verified_brands,
         "progress": new_progress,

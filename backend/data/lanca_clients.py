@@ -33,7 +33,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "high_value",
         "notes": "Melhor cliente em faturação, mas margem não muito boa atualmente",
-        "description": "British heritage menswear brand known for shirts and suits. Top revenue client for Lança.",
+        "description": "British heritage menswear brand established in Jermyn Street, London, known for premium shirts, suits and formal wear. Style is classic British tailoring with a modern edge — structured shoulders, clean silhouettes, and natural fabrics. Suits retail from £400-£600 (€500), jackets £250-£350 (€300), trousers £200-£280 (€250). Retail business model with 30 stores across the UK. Target customer is the professional man who wants quality tailoring at an accessible premium price point. Top revenue client for Lança, 10-year manufacturing partnership.",
     },
     
     # ========== 2. Carlos Nieto ==========
@@ -56,7 +56,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "high_value",
         "notes": "Cliente há 12 anos, 20 lojas em Bogotá",
-        "description": "Premium Colombian menswear brand with 20 stores, 12-year partnership with Lança.",
+        "description": "Premium Colombian menswear brand headquartered in Bogotá, specialising in tailored suits, blazers and trousers for the Latin American market. Classic-contemporary style with European-influenced silhouettes and 100% wool fabrics. Suits retail at approximately $900 USD (€800), jackets $560 (€500), trousers $390 (€350). Operates 20 retail stores across Colombia with both ready-to-wear and made-to-measure offering. Target customer is the Colombian professional and executive. 12-year manufacturing partnership with Lança — one of the longest-standing clients.",
     },
     
     # ========== 3. Bayertree Favourbrook ==========
@@ -79,7 +79,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Bespoke/Retail",
         "tier": "high_value",
         "notes": "Comercializa Favourbrook e Oliver Spencer",
-        "description": "British luxury occasion wear and bespoke tailoring, 10-year partnership.",
+        "description": "British luxury occasion wear and bespoke tailoring group based in London. Bayertree distributes Favourbrook (colourful waistcoats, occasion suits, wedding wear) and Oliver Spencer (contemporary relaxed tailoring). Rich fabrics, silk linings, bold patterns alongside classic cuts. Suits from £800-£1200 (€1000), jackets £500-£750 (€650), trousers £350-£500 (€450). Retail and bespoke business model with 8 locations. Target customer is the discerning man seeking distinctive occasion wear and luxury everyday tailoring. 10-year partnership with Lança.",
     },
     
     # ========== 4. Wickett Jones ==========
@@ -102,7 +102,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "high_value",
         "notes": "2 lojas em Lisboa + espaço no El Corte Inglés de Lisboa e Gaia",
-        "description": "Portuguese premium menswear brand with stores in Lisbon and El Corte Inglés presence.",
+        "description": "Portuguese premium menswear brand headquartered in Lisbon. Classic European tailoring with a focus on quality wool suits, jackets and trousers at accessible premium prices. Suits from €600, jackets €380, trousers €280. Retail model with 2 dedicated stores in Lisbon plus concessions at El Corte Inglés (Lisbon and Vila Nova de Gaia). Made-to-measure service available. Target customer is the Portuguese professional seeking quality own-brand tailoring. 10-year partnership with Lança.",
     },
     
     # ========== 5. Martin Sturm GMBH ==========
@@ -125,7 +125,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "high_value",
         "notes": "Loja multimarca de luxo em Viena",
-        "description": "Austrian luxury multi-brand retailer in Vienna with premium pricing.",
+        "description": "Austrian luxury multi-brand menswear retailer located in Vienna. Curates high-end European suits, jackets and formal wear with impeccable attention to fabric and fit. Suits retail from €1500, jackets €950, trousers €700 — positioning at the upper end of the premium range. Single boutique with made-to-measure consultations. Target customer is the Viennese executive and luxury buyer seeking world-class tailoring. 5-year partnership with Lança for 100% wool garments.",
     },
     
     # ========== 6. Grupo YES ==========
@@ -148,7 +148,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail/Distribution",
         "tier": "high_value",
         "notes": "Distribui Adolfo Dominguez no Peru, 29 lojas",
-        "description": "Peruvian multi-brand retailer distributing Adolfo Dominguez with 29 stores.",
+        "description": "Peruvian multi-brand retail group based in Lima, distributing Adolfo Dominguez and other European fashion brands across Peru. Operates 29 retail stores nationally — one of the largest distribution networks among Lança clients. Style is premium European menswear adapted for the Latin American market. 100% wool suits manufactured by Lança. Target customer is the Peruvian professional and fashion-conscious man. 7-year distribution partnership.",
     },
     
     # ========== 7. Sastrerías Españolas ==========
@@ -171,7 +171,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail/Bespoke",
         "tier": "medium_value",
         "notes": "Marca jajoan, PVP a partir de 375€",
-        "description": "Spanish tailoring company with 6 stores and accessible premium pricing.",
+        "description": "Spanish tailoring company operating under the Jajoan brand. Traditional and bespoke style with a focus on classic Spanish sastrería — structured, elegant suits in 100% wool. Entry-level premium pricing: suits from €375, jackets €250, trousers €175. Retail and bespoke business model with 6 stores across Spain. Made-to-measure service is a core offering. Target customer is the Spanish man seeking traditional tailoring at accessible prices. 7-year partnership with Lança.",
     },
     
     # ========== 8. Walker Slater ==========
@@ -194,7 +194,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail/Bespoke",
         "tier": "medium_value",
         "notes": "Especialista em tweed escocês",
-        "description": "Scottish heritage tweed and suits specialist with 5 stores in Edinburgh.",
+        "description": "Scottish heritage menswear brand specialising in tweed suits, jackets and country-inspired formal wear. Known for bold patterns, Harris Tweed and traditional Scottish tailoring with a contemporary edge. Suits from £650 (€800), jackets £400 (€500), trousers £280 (€350). Retail and bespoke business model with 5 stores, primarily in Edinburgh. Made-to-measure service using 100% wool fabrics. Target customer is the man seeking distinctive British country-style tailoring. 5-year partnership with Lança.",
     },
     
     # ========== 9. Brigdens ==========
@@ -217,7 +217,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "medium_value",
         "notes": "Loja multimarca em Derby",
-        "description": "UK multi-brand retailer in Derby with 10-year partnership and 2 stores.",
+        "description": "British multi-brand menswear retailer based in Derby. Curates premium suits, jackets and formal wear from multiple European brands including Lança-manufactured ranges. Classic-premium style positioning with suits from £650 (€800), jackets £400 (€500), trousers £280 (€350). Retail model with 2 stores and a strong local reputation. Made-to-measure consultations available. Target customer is the East Midlands professional seeking quality tailoring. One of the longest-standing Lança partnerships at 10 years.",
     },
     
     # ========== 10. Gresham Blake ==========
@@ -240,7 +240,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Bespoke",
         "tier": "medium_value",
         "notes": "Alfaiate bespoke em Brighton",
-        "description": "British bespoke tailor in Brighton with 10-year partnership and luxury positioning.",
+        "description": "British bespoke and contemporary tailor based in Brighton. Known for bold, creative tailoring that blends classic menswear with contemporary design — loud linings, unconventional fabrics, distinctive cuts. Suits from £800 (€1000), jackets £520 (€650), trousers £360 (€450). Exclusively bespoke and made-to-measure business model from a single Brighton atelier. 100% wool and luxury natural fabrics. Target customer is the creative professional and fashion-forward man. Celebrity clientele. 10-year bespoke partnership with Lança.",
     },
     
     # ========== 11. Fernando de Carcer ==========
@@ -263,7 +263,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "low_value",
         "notes": "Cliente recente, marca própria em Madrid",
-        "description": "Spanish premium menswear brand in Madrid with own brand focus.",
+        "description": "Spanish premium menswear brand based in Madrid. Modern take on Spanish tailoring — clean, slim silhouettes with Mediterranean influence. 100% wool suits and jackets. Suits from €600, jackets €380, trousers €280. Own-brand retail model with a single Madrid boutique and made-to-measure offering. Target customer is the young Madrid professional seeking modern tailoring. Recent Lança client (2-3 years), growing partnership.",
     },
     
     # ========== 12. Original Fivers (Flax London) ==========
@@ -286,7 +286,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "low_value",
         "notes": "Marca Flax London",
-        "description": "London-based contemporary menswear brand with 2 stores and premium positioning.",
+        "description": "London-based contemporary menswear brand operating under the Flax London label. Modern, relaxed tailoring with a focus on natural fabrics and minimalist design. Suits from £650 (€800), jackets £400 (€500), trousers £280 (€350). Own-brand retail model with 2 London stores and made-to-measure service. 100% wool and linen blends. Target customer is the modern London professional seeking understated, high-quality tailoring. 3-year partnership with Lança.",
     },
     
     # ========== 13. Trotter & Dean ==========
@@ -309,7 +309,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "low_value",
         "notes": "Cliente recente com 5 lojas em Cambridge",
-        "description": "British heritage menswear brand in Cambridge with 5 stores and luxury pricing.",
+        "description": "British heritage menswear brand based in Cambridge. Classic English tailoring style — structured shoulders, traditional cuts, quality wool cloths. Premium to luxury pricing: suits from £800 (€1000), jackets £520 (€650), trousers £360 (€450). Own-brand retail model with 5 stores and made-to-measure service. 100% wool and tweed fabrics. Target customer is the traditional British gentleman and academic. Newer Lança partnership (2 years), rapidly growing.",
     },
     
     # ========== 14. Garcia Madrid ==========
@@ -332,7 +332,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "low_value",
         "notes": "Parceria de 10 anos, boutique única em Madrid",
-        "description": "Spanish premium menswear brand in Madrid with 10-year partnership.",
+        "description": "Spanish premium menswear brand headquartered in Madrid. Traditional Spanish sastrería refined with a modern sensibility — elegant, slim fits in rich wool fabrics. Suits from €1000, jackets €650, trousers €450. Own-brand retail model from a single Madrid boutique with made-to-measure consultations. 100% wool with meticulous construction. Target customer is the Madrid executive seeking timeless Spanish elegance. One of the longest partnerships at 10 years with Lança.",
     },
     
     # ========== 15. Progress Dealer ==========
@@ -355,7 +355,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "medium_value",
         "notes": "2 lojas em Luanda, mercado angolano",
-        "description": "Angolan premium menswear brand with 2 stores in Luanda.",
+        "description": "Angolan premium menswear brand operating under the Dealer label in Luanda. European-influenced tailoring adapted for the African luxury market — bold, refined suits in 100% wool. Suits from approximately €1000, jackets €650, trousers €450. Own-brand retail model with 2 stores in Luanda. Ready-to-wear only (no MTM). Target customer is the Angolan executive and luxury buyer. 7-year manufacturing partnership with Lança, representing Lança's African market footprint.",
     },
     
     # ========== 16. Vila Verdi ==========
@@ -378,7 +378,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Bespoke",
         "tier": "medium_value",
         "notes": "Só faz por medida, boutique em Ghent",
-        "description": "Belgian bespoke-only tailor in Ghent with 10-year exclusive partnership.",
+        "description": "Belgian bespoke-only tailor based in Ghent. Exclusively made-to-measure, creating individually crafted suits, jackets and trousers in premium 100% wool fabrics. Clean, understated European style with a focus on perfect fit and fabric quality. Suits from €800, jackets €500, trousers €350. Single boutique atelier model — no ready-to-wear. Target customer is the Flemish professional and connoisseur seeking bespoke tailoring. 10-year exclusive manufacturing partnership with Lança.",
     },
     
     # ========== 17. Supaman (Oliver Brown) ==========
@@ -401,7 +401,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "medium_value",
         "notes": "Marca Oliver Brown, 5 lojas em Londres",
-        "description": "British luxury heritage menswear brand Oliver Brown with 5 London stores.",
+        "description": "British luxury heritage menswear brand operating as Oliver Brown in London. Classic British tailoring with a focus on City and formal wear — morning suits, three-piece suits, traditional Jermyn Street quality. Suits from £800 (€1000), jackets £520 (€650), trousers £360 (€450). Own-brand retail model with 5 London stores and made-to-measure service. 100% wool and luxury cloths. Target customer is the London City professional, wedding buyer, and traditional menswear aficionado. 10-year partnership with Lança.",
     },
     
     # ========== 18. Coshile (Anthony's London) ==========
@@ -424,7 +424,7 @@ LANCA_CLIENTS: List[Dict] = [
         "business_model": "Retail",
         "tier": "medium_value",
         "notes": "Marca Anthony's London, 8 lojas na República Checa",
-        "description": "Czech retailer with Anthony's London brand and 8 stores across Czech Republic.",
+        "description": "Czech menswear retailer operating the Anthony's London brand with 8 stores across the Czech Republic. British-inspired contemporary tailoring — modern fits with classic English details, aimed at the Central European market. Suits from approximately €750, jackets €480, trousers €330. Own-brand retail model with ready-to-wear focus (no MTM). 100% wool garments manufactured by Lança. Target customer is the Czech professional seeking accessible British-style tailoring. 6-year manufacturing partnership.",
     },
 ]
 

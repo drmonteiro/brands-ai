@@ -5,8 +5,9 @@ from typing import List, Optional
 import re
 from urllib.parse import urlparse
 from langchain_openai import AzureChatOpenAI
-from tavily import TavilyClient
 from config import Config
+# TODO: Remove tavily entirely after confirming stability in production
+# from tavily import TavilyClient
 
 def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
     """
@@ -35,9 +36,11 @@ def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
         max_tokens=12000,
     )
 
-def get_tavily_client() -> TavilyClient:
-    """Get Tavily client instance"""
-    return TavilyClient(api_key=Config.TAVILY_API_KEY)
+def get_tavily_client():
+    """DEPRECATED: Tavily disabled. Contacts now come from HTML extraction."""
+    raise RuntimeError(
+        "Tavily is disabled. Use email_extractor + LLM extraction instead."
+    )
 
 async def get_exchange_rate() -> float:
     """Fetch current EUR to USD exchange rate"""

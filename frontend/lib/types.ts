@@ -40,6 +40,7 @@ export interface BrandLead {
   contact_email?: string;
   contact_phone?: string;
   contact_linkedin?: string;
+  product_images?: string[];
   feedback_history?: {
     feedback_type: "up" | "down";
     comment: string;

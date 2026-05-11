@@ -1,0 +1,74 @@
+# Lança Rubric — single source of truth for brand evaluation
+# Validated with the commercial team. Used by rubric_evaluator.py and coverage_audit.py.
+
+critical_criteria:
+  - id: price_range
+    description: "Average suit price between €500 and €2000 (flat inside range)"
+    type: range
+    field: avg_suit_price_eur
+    min: 500
+    max: 2000
+    flat_inside_range: true
+    hard_reject_below: 375
+    hard_reject_above: 2500
+
+  - id: store_count
+    description: "1 to 20 physical stores (flat inside range)"
+    type: range
+    field: store_count
+    min: 1
+    max: 20
+    flat_inside_range: true
+    hard_reject_above: 30
+
+  - id: city_presence
+    description: "HQ, store, or showroom in target city — HQ > store > showroom"
+    type: hierarchical_presence
+    field: city_presence_type
+    hierarchy: [hq, store, showroom]
+    min_required: showroom
+
+  - id: not_chain
+    description: "Independent brand, not chain or marketplace"
+    type: boolean
+    field: is_chain
+    expected: false
+
+  - id: style_match
+    description: "Tailoring, MTM, or classic premium menswear — narrow scope"
+    type: enum
+    field: style_category
+    allowed: [tailoring, made_to_measure, classic_premium_menswear]
+
+important_criteria:
+  - id: similar_to_clients
+    description: "Embedding similarity >= 0.5 with at least one Lança client"
+    type: threshold
+    field: max_client_similarity
+    min: 0.5
+
+  - id: contactable
+    description: "Has verified email or phone"
+    type: any_of
+    fields: [verified_email, verified_phone]
+
+bonus_criteria:
+  - id: wool_percentage
+    description: "Wool % in main materials (progressive, linear)"
+    type: progressive
+    field: wool_percentage
+    scale: linear
+    min_value: 0
+    max_value: 100
+
+  - id: made_to_measure
+    description: "Offers MTM or tailoring"
+    type: boolean
+    field: offers_mtm
+    expected: true
+
+  - id: not_appointment_only
+    description: "Walk-in possible"
+    type: boolean
+    field: appointment_only
+    expected: false

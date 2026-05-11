@@ -5,6 +5,7 @@ LangGraph Orchestration for Confeções Lança Prospecting Workflow
 import operator
 import contextlib
 import asyncio
+import logging
 from typing import Annotated, List, Dict, Any, Union, Optional
 from typing_extensions import TypedDict
 
@@ -12,6 +13,8 @@ from langgraph.graph import StateGraph, END
 
 
 from models import BrandLead, ProspectorState, QuerySearchResults
+
+logger = logging.getLogger("graph")
 from .nodes.initializer import initialize_search
 from .nodes.discovery import discovery_node
 from .nodes.validator import validation_node
@@ -21,17 +24,33 @@ from .nodes.persistence import filter_node
 # WORKFLOW STATE DEFINITION
 # ============================================================================
 
+def _replace_list(existing: Optional[List[Any]], new: Optional[List[Any]]) -> List[Any]:
+    """
+    Replace (do not concatenate) lists in graph state.
+
+    operator.add caused stale Postgres checkpoints for the same thread_id
+    (e.g. prospect_search_London) to accumulate duplicate candidate_urls /
+    potential_brands across runs.
+    Each node emits the authoritative full list for that field.
+    """
+    if new is not None:
+        return list(new)
+    return existing or []
+
 class GraphState(TypedDict):
     """
     State of the prospecting workflow.
-    Uses Annotated with operator.add for fields that should accumulate results.
+    progress uses operator.add to append messages; candidate_urls, potential_brands,
+    and verified_brands use replace semantics so checkpointed runs do not duplicate.
     """
     target_city: str
     target_country: str
     search_queries: List[str]
-    candidate_urls: Annotated[List[str], operator.add]
-    potential_brands: Annotated[List[BrandLead], operator.add]
-    verified_brands: Annotated[List[BrandLead], operator.add]
+    query_origins: List[str]
+    query_languages: List[str]
+    candidate_urls: Annotated[List[str], _replace_list]
+    potential_brands: Annotated[List[BrandLead], _replace_list]
+    verified_brands: Annotated[List[BrandLead], _replace_list]
     search_results: List[QuerySearchResults]  # To replace global mutable list
     progress: Annotated[List[str], operator.add]
     exchange_rate: float
@@ -103,12 +122,12 @@ async def _get_app_with_postgres():
             try:
                 await checkpointer.setup()
                 _setup_done = True
-                print("[GRAPH] Checkpointer setup complete.")
+                logger.info("Postgres checkpointer setup complete")
             except Exception as e:
-                print(f"[GRAPH] Checkpointer setup failed: {e}")
-                # Don't set _setup_done to True so it can retry
+                logger.error("Checkpointer setup failed: %s", e)
                 raise
     
+    logger.info("Building graph: initialize → discovery → validation → persistence")
     workflow = StateGraph(GraphState)
     workflow.add_node("initialize", initialize_search)
     workflow.add_node("discovery", discovery_node)
@@ -122,6 +141,7 @@ async def _get_app_with_postgres():
     workflow.add_edge("persistence", END)
     
     app = workflow.compile(checkpointer=checkpointer)
+    logger.info("Graph compiled — ready to stream")
     yield app
 
 # Helper to execute against checking

@@ -324,7 +324,7 @@ KNOWN_CHAIN_NAMES = {
 # SCORING FUNCTIONS
 # ============================================================================
 
-def calculate_keyword_score(content: str, url: str = "", detected_language: str = None) -> int:
+def calculate_keyword_score(content: str, url: str = "", detected_language: str = None, verbose: bool = False) -> int:
     """
     Calculate the quality score for content using multi-language keyword matching.
     
@@ -332,9 +332,10 @@ def calculate_keyword_score(content: str, url: str = "", detected_language: str 
         content: The scraped website content (first ~8000 chars)
         url: The URL of the website
         detected_language: ISO 639-1 language code (e.g., "en", "it", "fr")
+        verbose: If True, also return matched keywords grouped by language.
     
     Returns:
-        Integer score. Higher = more likely to be a good Lança partner.
+        Integer score (or tuple of (score, details_dict) if verbose=True).
         Score >= 2 is considered worth investigating.
     """
     text = (content or "").lower()[:8000]
@@ -343,25 +344,37 @@ def calculate_keyword_score(content: str, url: str = "", detected_language: str 
     
     score = 0
     matched_keywords = []
+    per_lang_hits = {}  # lang -> list of (keyword, weight)
     
-    # Apply quality keywords
     for keyword, (weight, languages) in QUALITY_KEYWORDS.items():
-        # Check if keyword applies to detected language
         if detected_language and "*" not in languages and detected_language not in languages:
             continue
         
         if keyword in combined:
             score += weight
             matched_keywords.append((keyword, weight))
+            for lang in languages:
+                per_lang_hits.setdefault(lang, []).append((keyword, weight))
     
-    # Apply exclusion keywords
     for keyword, (weight, languages) in EXCLUSION_KEYWORDS.items():
         if detected_language and "*" not in languages and detected_language not in languages:
             continue
         
         if keyword in combined:
-            score += weight  # weight is already negative
+            score += weight
             matched_keywords.append((keyword, weight))
+            for lang in languages:
+                per_lang_hits.setdefault(lang, []).append((keyword, weight))
+    
+    if verbose:
+        details = {
+            "total_score": score,
+            "detected_language": detected_language,
+            "matched_count": len(matched_keywords),
+            "per_language_hits": {lang: len(hits) for lang, hits in per_lang_hits.items()},
+            "matched_keywords": matched_keywords,
+        }
+        return score, details
     
     return score
 

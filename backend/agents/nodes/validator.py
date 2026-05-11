@@ -4,24 +4,92 @@ Node 3: Validation Node V3
 Multi-language keyword scoring, context-aware price extraction, confidence scoring.
 """
 
+import logging
 from typing import List, Dict, Any, Union, Optional
 import asyncio
 import json
 import re
 from models import ProspectorState, BrandLead, ExtractedContent
+
+logger = logging.getLogger("node.validator")
 from config import CONFECOS_LANCA_PROFILE
 from data.premium_locations import detect_premium_location, calculate_location_score
 from data.multilingual_keywords import (
     calculate_keyword_score,
     is_known_chain,
 )
+from urllib.parse import urlparse
 from .utils import get_llm, get_domain_from_url, normalize_url
 from services.content_scraper import batch_extract_content, enrich_content_with_prices
 from services.price_extractor import extract_price_from_content
 from services.vector_db import find_similar_clients
 from services.client_analysis import generate_rich_client_examples
 from services.database import is_domain_suppressed, extract_domain
+from services.google_places import enrich_with_places
+from services.field_merger import merge_brand_data
 from data.lanca_clients import LANCA_CLIENTS
+from data.marketplace_allowlist import is_allowlisted_marketplace
+
+
+# ============================================================================
+# HELPERS
+# ============================================================================
+
+_PRICING_KW_RE = re.compile(
+    r"(?:from|starting\s+at|a\s+partir\s+de|à\s+partir\s+de|ab|desde|da|shop\s+now|buy\s+now|add\s+to\s+cart|€|£|\$|¥|kr)",
+    re.IGNORECASE,
+)
+
+
+def _has_pricing_keywords(text: str) -> bool:
+    """Check if text contains pricing-related keywords or currency symbols."""
+    if not text:
+        return False
+    return bool(_PRICING_KW_RE.search(text[:5000]))
+
+
+# ============================================================================
+# STRUCTURED STAGE LOGGING
+# ============================================================================
+
+def stage_log(stage: str, city: str, candidates_in: int, candidates_out: int, **extra):
+    """Emit a structured log line at each phase boundary for the coverage audit."""
+    parts = [f"[stage={stage}]", f"[city={city}]",
+             f"[candidates_in={candidates_in}]", f"[candidates_out={candidates_out}]"]
+    for k, v in extra.items():
+        parts.append(f"[{k}={v}]")
+    logger.info(" ".join(parts))
+
+
+# ============================================================================
+# BLOG / MEDIA / MARKETPLACE FILTER (free, no API cost)
+# ============================================================================
+
+BLOG_INDICATORS = [
+    "/blog", "/article", "/post", "/news",
+    "wordpress.com", "blogspot.com", "medium.com",
+    "/tag/", "/category/", "/archive/",
+]
+
+MEDIA_DOMAINS = {
+    "permanentstyle.com", "styleforum.net", "mrporter.com",
+    "farfetch.com", "matchesfashion.com", "ssense.com",
+    "gq.com", "esquire.com", "vogue.com",
+    "businessoffashion.com", "highsnobiety.com",
+    "therake.com", "parfrenchtouch.com",
+}
+
+
+def is_blog_or_media(url: str) -> bool:
+    """Filter out blogs, media sites, and marketplaces. Free check.
+    Respects the marketplace allowlist (own-brand labels get through)."""
+    if is_allowlisted_marketplace(url):
+        return False
+    url_lower = url.lower()
+    domain = urlparse(url).netloc.lower().replace("www.", "")
+    if domain in MEDIA_DOMAINS:
+        return True
+    return any(ind in url_lower for ind in BLOG_INDICATORS)
 
 # Limit global validation concurrency (e.g., 3 city searches at a time)
 validation_semaphore = asyncio.Semaphore(3)
@@ -132,78 +200,83 @@ def detect_language(text: str) -> Optional[str]:
 # PHASE 1: FAST TRIAGE (GPT-5.1-mini — ~$0.02 per candidate)
 # ============================================================================
 
-async def triage_candidate(content: ExtractedContent, target_city: str) -> Dict[str, Any]:
+TRIAGE_BATCH_SIZE = 12
+
+
+async def triage_batch(contents: List[ExtractedContent], target_city: str) -> List[Dict[str, Any]]:
     """
-    Phase 1: Quick triage with fast model. Evaluates one candidate at a time.
-    Returns a score 1-10 and basic classification.
-    
-    Cost: ~$0.01-0.03 per candidate (GPT-5.1-codex-mini with ~3K chars input)
+    Phase 1: Quick triage with fast model. Evaluates a BATCH of candidates at once.
+    Returns a list of {url, score, ...} dicts.
+    Processes up to TRIAGE_BATCH_SIZE (12) candidates per LLM call, reducing
+    token overhead from per-candidate system prompts and saving 5-7x tokens.
     """
     llm = get_llm(fast=True, temperature=0)
-    
-    # Only send first 3000 chars — enough for triage, saves tokens
-    content_preview = (content.content or "")[:3000]
-    
+
+    candidates_block = "\n\n".join(
+        f"--- CANDIDATE {i+1} ---\nURL: {c.url}\n{(c.content or '')[:2500]}"
+        for i, c in enumerate(contents)
+    )
+    url_list = [c.url for c in contents]
+
     prompt = f"""You are a quick-filter for a Portuguese suit manufacturer (Confeções Lança) looking for retail partners.
 
 TARGET: Independent boutiques selling mid-to-high range tailored menswear, up to 20 stores.
-Price ranges we target:
-  - Complete suits (jacket + trousers): $500–$2,300
-  - Jackets only: $300–$1,380
-  - Trousers only: $200–$920
-NOT ultra-luxury/bespoke ateliers — we want brands in the affordable premium/tailoring segment, NOT Savile Row level.
-Brands with own label collections or ready-to-wear are a plus.
+Price ranges: suits $500–$2,300, jackets $300–$1,380, trousers $200–$920.
+NOT ultra-luxury/bespoke ateliers. Brands with own label collections or RTW are a plus.
 
-⚠️ PHYSICAL PRESENCE RULE — READ CAREFULLY:
-The brand MUST have a physical store, showroom, or strong retail presence in {target_city}.
-If the brand only sells online and has NO physical presence in {target_city}, set city_match to false.
+⚠️ PHYSICAL PRESENCE RULE:
+Brand MUST have a physical store, showroom, or strong retail presence in {target_city}.
+If online-only, set city_match=false.
 
-CANDIDATE URL: {content.url}
-CONTENT (preview):
-{content_preview}
+CANDIDATES ({len(contents)} total):
+{candidates_block}
 
-TASK: Rate this as a potential manufacturing partner (1-10) and classify it.
+TASK: Rate EACH candidate (1-10) and classify it.
 
-Return ONLY valid JSON:
-{{"score": 1-10, "reason": "one short sentence", "is_menswear": true/false, "estimated_price_tier": "budget|mid|premium|luxury|unknown", "estimated_stores": "independent_1_20|chain_20_plus|unknown", "is_chain": true/false, "city_match": true/false, "is_bespoke_only": true/false, "appointment_only": true/false, "prices_visible": true/false}}
+Return ONLY a JSON array with one object per candidate, in SAME order:
+[{{"url":"...", "score":1-10, "reason":"short sentence", "is_menswear":true/false, "estimated_price_tier":"budget|mid|premium|luxury|unknown", "estimated_stores":"independent_1_20|chain_20_plus|unknown", "is_chain":true/false, "city_match":true/false, "is_bespoke_only":true/false, "appointment_only":true/false, "prices_visible":true/false}}]
 
-SCORING GUIDE:
-- 9-10: Perfect match (tailored suits/trousers/waistcoats, within our price ranges, 1-20 stores, own label or RTW, PHYSICAL STORE IN {target_city}, PRICES VISIBLE on website)
-- 7-8: Good candidate (mid-high menswear, independent retailer with up to 20 stores, store confirmed in {target_city}, prices visible)
-- 5-6: Worth investigating (menswear but unclear on physical locations or price range)
-- 3-4: Probably not a match (large chain with >20 stores, wrong segment, ultra-luxury/bespoke only, OR NO physical presence in {target_city})
-- 1-2: Definitely not (fast fashion, women only, not retail, not menswear, budget under €250, or clearly NO physical presence in {target_city})
+SCORING: 9-10 perfect match, 7-8 good, 5-6 worth investigating, 3-4 probably not, 1-2 definitely not.
+RULES: No city evidence → city_match=false, cap 4. Ultra-luxury → cap 5. Appointment-only → -2 pts. Hidden prices → -2 pts.
+BE INCLUSIVE: menswear + HQ in {target_city} + visible prices → at least 5.
 
-IMPORTANT: If there is NO evidence the brand has a physical store/showroom in {target_city}, set city_match to false and cap score at 4.
-IMPORTANT: If the brand is clearly ultra-luxury (suits €3000+, Savile Row bespoke), cap score at 5 — they are above our target range.
-IMPORTANT: If the website is APPOINTMENT-ONLY (you must "book an appointment" to see products), DO NOT exclude them, but set appointment_only to true and reduce score by 2.
-IMPORTANT: Set prices_visible to true ONLY if actual product prices (€, £, $) are shown on the website. If prices are hidden or "price on request", set to false and REDUCE score by 2 points.
-BE INCLUSIVE: If the brand sells any kind of menswear (suits, trousers, waistcoats), is headquartered in {target_city}, and has visible prices, give it at least a score of 5.
-
-Return ONLY JSON."""
+Return ONLY the JSON array."""
 
     try:
         response = await llm.ainvoke(prompt)
         raw = response.content.replace("```json", "").replace("```", "").strip()
-        result = json.loads(raw)
-        result["url"] = content.url
-        return result
+        results = json.loads(raw)
+        if not isinstance(results, list):
+            results = [results]
+        for i, r in enumerate(results):
+            if "url" not in r or not r["url"]:
+                r["url"] = url_list[i] if i < len(url_list) else ""
+        return results
     except Exception as e:
-        print(f"[TRIAGE] Error for {content.url}: {e}")
-        return {
-            "url": content.url,
-            "score": 5,  # Neutral — don't exclude on triage failure
-            "reason": "triage_failed",
-            "is_menswear": True,
-            "estimated_price_tier": "unknown",
-            "estimated_stores": "unknown",
-            "is_chain": False,
-            "city_match": True,
-        }
+        logger.warning("Batch triage error: %s", e)
+        return [
+            {
+                "url": c.url, "score": 5, "reason": "Batch triage error — defaulting to neutral",
+                "is_menswear": True, "estimated_price_tier": "unknown",
+                "estimated_stores": "unknown", "is_chain": False,
+                "city_match": True, "is_bespoke_only": False,
+                "appointment_only": False, "prices_visible": False,
+            }
+            for c in contents
+        ]
+
+
+async def triage_candidate(content: ExtractedContent, target_city: str) -> Dict[str, Any]:
+    """Legacy single-candidate triage. Wraps triage_batch for backward compat."""
+    results = await triage_batch([content], target_city)
+    return results[0] if results else {
+        "url": content.url, "score": 5, "reason": "Fallback",
+        "is_menswear": True, "city_match": True, "is_chain": False,
+    }
 
 
 # ============================================================================
-# PHASE 2: DEEP ANALYSIS (GPT-5.1 — batches of 3)
+# PHASE 2: DEEP ANALYSIS (GPT-5.1 — batches of 5-8)
 # ============================================================================
 
 async def deep_analyze_batch(
@@ -212,10 +285,8 @@ async def deep_analyze_batch(
     target_city: str,
 ) -> List[BrandLead]:
     """
-    Phase 2: Deep analysis in small batches of 3.
-    Avoids "lost in the middle" problem. Uses GPT-5.1 for maximum quality.
-    
-    Cost: ~$0.30-0.80 per batch of 3 (GPT-5.1 with ~24K chars input)
+    Phase 2: Deep analysis in batches of 5-8.
+    Uses GPT-5.1 for maximum quality.
     """
     llm = get_llm(fast=False, temperature=0.2)
 
@@ -226,6 +297,13 @@ async def deep_analyze_batch(
             if e.content
         ]
     )
+
+    if not sites_content.strip():
+        logger.warning(
+            "│     Deep analysis skipped: no text content in batch (urls=%s)",
+            [e.url for e in extracted_contents],
+        )
+        return []
 
     prompt = f"""You are the FINAL selection agent for "Confeções Lança". 
     {CONFECOS_LANCA_PROFILE}
@@ -258,8 +336,9 @@ async def deep_analyze_batch(
     4. PRICE EXTRACTION: Find actual prices for suits, jackets AND trousers separately. Convert to EUR if in another currency.
     5. PRESENCE VALIDATION: If you cannot confirm the brand has a physical presence in {target_city}, EXCLUDE it. DO NOT exclude it if headquartered elsewhere, as long as they have a store.
     6. APPOINTMENT-ONLY PENALTY: If the brand's website requires booking an appointment to see products, DO NOT exclude it, but reduce fitScore by 20 points.
-    7. PRICE VISIBILITY & NOTES: Se não houver preços no site, MAS houver indicação como "prices starting at $1500", preenche o "avgPrice" com esse valor, MAS OBRIGATORIAMENTE coloca no campo "priceNote" o texto "A partir de [VALOR]". Se nem isso estiver presente (ou seja, preços 100% indisponíveis), no campo "priceNote" escreve estritamente a frase: "O site não contém os preços dos fatos", e coloca o "avgPrice" como 0. NUNCA inventes ou deduzas o "avgPrice" por ti próprio — se não há provas do preço no texto, devolve sempre 0. 
+    7. PRICE VISIBILITY & NOTES: Se não houver preços no site, MAS houver indicação como "prices starting at $1500", preenche o "avgPrice" com esse valor, MAS OBRIGATORIAMENTE coloca no campo "priceNote" o texto "A partir de [VALOR]". Se nem isso estiver presente (ou seja, preços 100% indisponíveis), no campo "priceNote" escreve estritamente a frase: "O site não contém os preços dos fatos", e coloca o "avgPrice" como 0. NUNCA inventes ou deduzas o "avgPrice" por ti próprio — se não há provas do preço no texto, devolve sempre 0.
     8. BE INCLUSIVE: Include ALL brands that sell menswear (suits, trousers, waistcoats), HAVE A STORE in {target_city}, have up to 20 stores, and are within the target price ranges.
+    9. NULL FOR UNGROUNDED FIELDS: Return null for ANY field you cannot ground in the provided source text. Especially: contactPhone, contactEmail, contactName, headquartersAddress, woolPercentage. NEVER fabricate or guess these values.
     
     FORMAT: Return ONLY a JSON array:
     [
@@ -283,13 +362,26 @@ async def deep_analyze_batch(
     
     Return ONLY JSON."""
 
+    raw = ""
     try:
         response = await llm.ainvoke(prompt)
         raw = response.content.replace("```json", "").replace("```", "").strip()
         candidates = json.loads(raw)
+        if not isinstance(candidates, list):
+            candidates = [candidates]
+        if not candidates:
+            logger.warning(
+                "│     Deep analysis: model returned empty array (candidates_in_batch=%d, raw_chars=%d)",
+                len(extracted_contents),
+                len(raw),
+            )
+        for c in candidates:
+            logger.info("│     Deep → %s (fitScore=%s, price=%s)", c.get("name"), c.get("fitScore"), c.get("avgPrice"))
         return candidates
     except Exception as e:
-        print(f"[DEEP-ANALYSIS] Error in batch: {e}")
+        logger.error("│     Deep analysis batch error: %s", e)
+        if raw:
+            logger.error("│     Deep analysis raw prefix: %s", raw[:800])
         return []
 
 
@@ -324,7 +416,8 @@ async def validation_node(
             else state.get("search_results", [])
         )
 
-    print(f"[VALIDATION V3] Starting 2-phase validation for {target_city}...")
+    logger.info("┌─── NODE 3: VALIDATION ────────────────────────────")
+    logger.info("│ City: %s | Price threshold: $%.0f", target_city, price_threshold_usd)
     new_progress = []
 
     if not search_results:
@@ -363,7 +456,8 @@ async def validation_node(
                             continue
 
                         # 2. Known chain exclusion (FREE — no API call)
-                        if is_known_chain(url, title):
+                        # But first: check marketplace allowlist (own-brand labels on marketplace domains)
+                        if is_known_chain(url, title) and not is_allowlisted_marketplace(url):
                             excluded_chains += 1
                             seen_domains.add(domain)
                             continue
@@ -379,11 +473,29 @@ async def validation_node(
                         candidate_urls.append(url)
 
         if excluded_existing_clients > 0:
+            logger.info("│ Phase 0: %d existing Lança clients excluded", excluded_existing_clients)
             new_progress.append(f"🤝 {excluded_existing_clients} parceiros atuais (clientes Lança) omitidos da prospecção")
 
         if excluded_chains > 0:
+            logger.info("│ Phase 0: %d known chains excluded", excluded_chains)
             new_progress.append(f"🛡️ {excluded_chains} cadeias conhecidas excluídas automaticamente")
 
+        pre_filter_count = len(candidate_urls)
+        candidate_urls = [u for u in candidate_urls if not is_blog_or_media(u)]
+        blogs_filtered = pre_filter_count - len(candidate_urls)
+        if blogs_filtered > 0:
+            logger.info("│ Phase 0: %d blogs/media filtered out", blogs_filtered)
+            new_progress.append(f"📰 {blogs_filtered} blogs/media/marketplaces filtrados")
+
+        logger.info("│ Phase 0 complete: %d candidate URLs after all filters", len(candidate_urls))
+        stage_log("phase0_free_filters", target_city,
+                  candidates_in=pre_filter_count + excluded_chains + excluded_existing_clients,
+                  candidates_out=len(candidate_urls),
+                  excluded_chains=excluded_chains,
+                  excluded_blogs=blogs_filtered,
+                  excluded_existing_clients=excluded_existing_clients)
+        logger.debug("[stage=phase0_free_filters] [city=%s] [domains=%s]",
+                     target_city, ",".join(urlparse(u).netloc for u in candidate_urls[:50]))
         new_progress.append(
             f"\n🚜 HARVEST: {len(candidate_urls)} URLs únicos encontrados..."
         )
@@ -418,9 +530,10 @@ async def validation_node(
             )
 
         # ================================================================
-        # PHASE 0b: CONTENT EXTRACTION (Exa text → Firecrawl/Jina fallback)
+        # PHASE 0b: EXA TEXT FOR TRIAGE (cheap pre-filter, no scraping)
         # ================================================================
-        # Build a map of URL → Exa text from search_results (already crawled)
+        # Exa text is used ONLY for triage (keyword scoring, pre-filter).
+        # Real scraping (Crawl4AI) happens AFTER triage on passed candidates.
         exa_text_map = {}
         for qr in search_results:
             for r in qr.results:
@@ -431,40 +544,28 @@ async def validation_node(
                     if norm not in exa_text_map or len(text) > len(exa_text_map[norm]):
                         exa_text_map[norm] = text
 
-        # Pre-fill from Exa, identify gaps for Firecrawl/Jina
         extracted_contents = []
-        urls_needing_scrape = []
+        exa_hits = 0
         for url in candidate_urls:
             norm = normalize_url(url)
             exa_text = exa_text_map.get(norm, "")
             if exa_text and len(exa_text) >= 500:
                 extracted_contents.append(ExtractedContent(url=url, content=exa_text[:15000]))
+                exa_hits += 1
             else:
-                urls_needing_scrape.append(url)
                 extracted_contents.append(ExtractedContent(url=url, content=""))
-
-        exa_hits = len(candidate_urls) - len(urls_needing_scrape)
-
-        # Only call Firecrawl/Jina for URLs that Exa didn't cover
-        if urls_needing_scrape:
-            scraped = await batch_extract_content(urls_needing_scrape)
-            scraped_map = {normalize_url(s.url): s.content for s in scraped if s.content}
-            for i, ec in enumerate(extracted_contents):
-                if not ec.content:
-                    norm = normalize_url(ec.url)
-                    if norm in scraped_map:
-                        extracted_contents[i] = ExtractedContent(url=ec.url, content=scraped_map[norm])
 
         for ec in extracted_contents:
             norm = normalize_url(ec.url)
             ec.query_origin = url_to_origin.get(norm, "Unknown")
 
         successful_extractions = [e for e in extracted_contents if e.content]
+        logger.info("│ Exa text available for triage: %d/%d URLs", exa_hits, len(candidate_urls))
         new_progress.append(
-            f"   ✅ Conteúdo extraído: {len(successful_extractions)}/{len(candidate_urls)} (Exa: {exa_hits}, Scrape: {len(successful_extractions) - exa_hits})"
+            f"   ✅ Exa text para triagem: {exa_hits}/{len(candidate_urls)} URLs com texto"
         )
 
-        # Multi-language keyword scoring
+        logger.info("│ Running multi-language keyword scoring...")
         new_progress.append(f"\n🌍 KEYWORD SCORING (multi-idioma)...")
         scored_contents = []
         for item in successful_extractions:
@@ -476,11 +577,12 @@ async def validation_node(
                 item.language_detected = detected_lang
                 scored_contents.append(item)
 
+        logger.info("│ Keyword scoring: %d relevant (score≥1) out of %d", len(scored_contents), len(successful_extractions))
         new_progress.append(
             f"   📉 Quality Check: {len(scored_contents)} relevantes (score ≥ 1) de {len(successful_extractions)}"
         )
 
-        # Enrich with price data via smart navigation
+        logger.info("│ Enriching %d sites with price data...", len(scored_contents))
         new_progress.append(
             f"   🕵️ Procurando preços em {len(scored_contents)} sites..."
         )
@@ -523,8 +625,9 @@ async def validation_node(
 
             similarity_score = similarity_scores[idx]
 
-            # Only skip if BOTH similarity is very low AND we have no price signal
-            if similarity_score < 40 and price_eur == 0 and content.quality_score < 3:
+            # Only skip if similarity is very low AND no price signal AND no pricing keywords in content
+            has_price_keywords = _has_pricing_keywords(content.content)
+            if similarity_score < 40 and price_eur == 0 and content.quality_score < 3 and not has_price_keywords:
                 continue
 
             # Pre-filter score (for sorting only)
@@ -552,26 +655,39 @@ async def validation_node(
             )
 
         pre_filtered.sort(key=lambda x: x["score"], reverse=True)
-        # Take top 80 for triage (triage is cheap, we want more brands to survive)
-        triage_candidates = [x["content"] for x in pre_filtered[:80]]
+        # Dynamic cap: take all with keyword_score >= 2, fallback to top 120
+        high_kw = [x for x in pre_filtered if x["content"].quality_score >= 2]
+        triage_candidates = [x["content"] for x in (high_kw if len(high_kw) >= 40 else pre_filtered[:120])]
 
+        logger.info("│ Pre-filter: %d candidates passed → top %d for triage", len(pre_filtered), len(triage_candidates))
+        stage_log("phase0b_keyword_prefilter", target_city,
+                  candidates_in=len(enriched_contents),
+                  candidates_out=len(triage_candidates),
+                  scored_relevant=len(scored_contents),
+                  pre_filtered_total=len(pre_filtered))
         new_progress.append(
             f"   📊 Pré-filtro: {len(triage_candidates)} candidatos para triagem"
         )
 
         # ================================================================
-        # PHASE 1: FAST TRIAGE (GPT-5.1-mini, per-candidate)
+        # PHASE 1: FAST TRIAGE (GPT-5.1-mini, batches of 12)
         # ================================================================
+        logger.info("│ ── Phase 1: FAST TRIAGE (%d candidates, GPT-mini, batches of %d) ──",
+                    len(triage_candidates), TRIAGE_BATCH_SIZE)
         new_progress.append(
-            f"\n⚡ TRIAGE RÁPIDA ({len(triage_candidates)} candidatos, GPT-5.1-mini)..."
+            f"\n⚡ TRIAGE RÁPIDA ({len(triage_candidates)} candidatos, GPT-5.1-mini, batches de {TRIAGE_BATCH_SIZE})..."
         )
 
-        # Run triage in parallel (fast model, individual candidates)
-        triage_tasks = [
-            triage_candidate(content, target_city)
-            for content in triage_candidates
+        # Run triage in batches of TRIAGE_BATCH_SIZE (parallel across batches)
+        triage_batches = [
+            triage_candidates[i:i + TRIAGE_BATCH_SIZE]
+            for i in range(0, len(triage_candidates), TRIAGE_BATCH_SIZE)
         ]
-        triage_results = await asyncio.gather(*triage_tasks)
+        batch_tasks = [triage_batch(batch, target_city) for batch in triage_batches]
+        batch_results_list = await asyncio.gather(*batch_tasks)
+        triage_results = []
+        for br in batch_results_list:
+            triage_results.extend(br)
 
         # Filter by triage score >= 5 (lowered to get more brands)
         triage_passed = []
@@ -615,6 +731,14 @@ async def validation_node(
             new_progress.append(
                 f"   💰 {no_price_penalized_count} penalizados (preços não visíveis no site)"
             )
+        logger.info("│ Triage results: %d passed (city_rejected=%d, appointment=%d, no_price=%d)",
+                    len(triage_passed), city_rejected_count, appointment_rejected_count, no_price_penalized_count)
+        stage_log("phase1_llm_triage", target_city,
+                  candidates_in=len(triage_candidates),
+                  candidates_out=len(triage_passed),
+                  city_rejected=city_rejected_count,
+                  appointment_penalized=appointment_rejected_count,
+                  no_price_penalized=no_price_penalized_count)
         new_progress.append(
             f"   ✅ {len(triage_passed)} passaram a triagem (score ≥ 5/10)"
         )
@@ -626,51 +750,111 @@ async def validation_node(
             }
 
         # ================================================================
-        # PHASE 2: DEEP ANALYSIS (GPT-5.1, batches of 3)
+        # PHASE 1.5: GOOGLE PLACES ENRICHMENT (structured location data)
+        # Parallel API calls for all triage-passed candidates.
         # ================================================================
-        BATCH_SIZE = 3
+        logger.info("│ ── Phase 1.5: GOOGLE PLACES ENRICHMENT (%d candidates) ──", len(triage_passed))
+        new_progress.append(
+            f"\n📍 GOOGLE PLACES ({len(triage_passed)} boutiques — lojas, moradas, telefone)..."
+        )
+
+        places_sem = asyncio.Semaphore(5)
+        async def get_places_data(content: ExtractedContent):
+            async with places_sem:
+                # Extract a likely brand name from the URL domain or title
+                domain = urlparse(content.url).netloc.lower().replace("www.", "")
+                brand_guess = domain.split(".")[0].replace("-", " ").replace("_", " ").title()
+                return await enrich_with_places(
+                    brand_name=brand_guess,
+                    city=target_city,
+                    country=state.target_country if hasattr(state, "target_country") else state.get("target_country", ""),
+                )
+
+        places_results = await asyncio.gather(
+            *(get_places_data(c) for c in triage_passed)
+        )
+
+        # Attach Places data to each content item as structured_data
+        places_enriched = 0
+        for i, content in enumerate(triage_passed):
+            places_data = places_results[i]
+            if places_data and (places_data.get("places_address") or places_data.get("places_store_count", 0) > 0):
+                places_enriched += 1
+            # Store Places data in structured_data for later use
+            existing_sd = content.structured_data or {}
+            existing_sd["places"] = places_data
+            triage_passed[i] = ExtractedContent(
+                url=content.url,
+                content=content.content,
+                structured_data=existing_sd,
+                extraction_method=content.extraction_method,
+                quality_score=content.quality_score,
+                query_origin=content.query_origin,
+                language_detected=content.language_detected,
+            )
+
+        logger.info("│ Google Places: %d/%d enriched with location data", places_enriched, len(triage_passed))
+        new_progress.append(
+            f"   ✅ Google Places: {places_enriched}/{len(triage_passed)} com dados de localização"
+        )
+
+        # ================================================================
+        # PHASE 2: DEEP ANALYSIS (GPT-5.1, batches of 3, parallel)
+        # Uses Exa text (already available) — NO scraping needed.
+        # ================================================================
+        BATCH_SIZE = 6
         batches = [
             triage_passed[i:i + BATCH_SIZE]
             for i in range(0, len(triage_passed), BATCH_SIZE)
         ]
 
+        logger.info("│ ── Phase 2: DEEP ANALYSIS (%d candidates in %d batches, GPT, parallel) ──", len(triage_passed), len(batches))
         new_progress.append(
             f"\n🧠 ANÁLISE PROFUNDA ({len(triage_passed)} candidatos em {len(batches)} batches, GPT-5.1)..."
         )
 
-        all_candidates = []
-        for batch_idx, batch in enumerate(batches):
+        async def run_batch(batch_idx, batch):
+            logger.info("│   Batch %d/%d: analyzing %d candidates...", batch_idx + 1, len(batches), len(batch))
             batch_results = await deep_analyze_batch(
                 batch, price_threshold_usd, target_city
             )
+            logger.info("│   Batch %d/%d: %d brands found", batch_idx + 1, len(batches), len(batch_results))
+            return batch_idx, batch_results
+
+        batch_outputs = await asyncio.gather(
+            *(run_batch(i, b) for i, b in enumerate(batches))
+        )
+
+        all_candidates = []
+        for batch_idx, batch_results in sorted(batch_outputs, key=lambda x: x[0]):
             all_candidates.extend(batch_results)
             new_progress.append(
                 f"   ✅ Batch {batch_idx + 1}/{len(batches)}: {len(batch_results)} marcas encontradas"
             )
 
         # ================================================================
-        # PHASE 2b: POST-LLM PHYSICAL PRESENCE VALIDATION
+        # PHASE 2b: POST-LLM PHYSICAL PRESENCE CLASSIFICATION
+        # Soft penalty instead of hard reject. Only reject when there is
+        # strong counter-evidence (explicit "online only" + no city match).
         # ================================================================
         city_filtered_candidates = []
         city_rejected = 0
         target_city_lower = (target_city or "").lower()
-        
+
         for data in all_candidates:
-            # Check hasPhysicalPresence flag from LLM
-            has_presence = data.get("hasPhysicalPresence", data.get("hasHeadquarters", True))
-            
-            # Validate address or storeLocations contains the target city
             hq_address = (data.get("headquartersAddress") or "").lower()
             hq_in_city = target_city_lower in hq_address
-            
+
             store_locs = data.get("storeLocations", []) or []
             locations_text = " ".join(str(loc) for loc in store_locs).lower()
             city_in_locations = target_city_lower in locations_text
-            
-            # Since the LLM is explicitly asked to put "Sede em X (Loja em Y)", 
-            # we just ensure they have a store or some city evidence in the triage content
-            # if the target city is not explicitly parsed in their locations list.
-            if not hq_in_city and not city_in_locations:
+
+            # Classify presence type for hierarchical scoring
+            if hq_in_city:
+                data["city_presence_type"] = "hq"
+            elif city_in_locations:
+                data["city_presence_type"] = "store"
+            else:
                 brand_name = data.get("name", "").lower()
                 found_city_evidence = False
                 for content in triage_passed:
@@ -679,22 +863,75 @@ async def validation_node(
                         if brand_name in content_lower and target_city_lower in content_lower:
                             found_city_evidence = True
                             break
-                
-                if not found_city_evidence:
-                    city_rejected += 1
-                    print(f"[VALIDATION] Rejected {data.get('name', '?')}: no presence evidence in {target_city}")
-                    continue
+
+                if found_city_evidence:
+                    data["city_presence_type"] = "showroom"
+                else:
+                    # Check for strong counter-evidence: explicit "online only" + nothing in city
+                    desc = (data.get("detailedDescription") or data.get("whySelected") or "").lower()
+                    explicit_online = any(kw in desc for kw in ("online only", "e-commerce only", "no physical store"))
+                    if explicit_online:
+                        city_rejected += 1
+                        logger.info("│   Rejected: %s — explicit online-only, no presence in %s",
+                                    data.get("name", "?"), target_city)
+                        continue
+                    data["city_presence_type"] = "ambiguous"
             
             city_filtered_candidates.append(data)
         
         if city_rejected > 0:
             new_progress.append(f"   🏙️ {city_rejected} marcas rejeitadas — sem presença confirmada em {target_city}")
         
+        stage_log("phase2_deep_analysis", target_city,
+                  candidates_in=len(triage_passed),
+                  candidates_out=len(city_filtered_candidates),
+                  llm_returned=sum(len(br) for _, br in batch_outputs),
+                  city_rejected=city_rejected)
         all_candidates = city_filtered_candidates
 
         # ================================================================
-        # PHASE 3: DEDUP + BRAND LEAD CREATION
+        # PHASE 2.5: SELECTIVE SCRAPING (top 10-12 only, skip if fields filled)
+        # Only scrape to fill null fields: email, founder, store list, sample prices.
+        # Skip scraping entirely if email + phone + founder already present.
         # ================================================================
+        MAX_SCRAPE = 12
+        scrape_candidates = []
+        for c in all_candidates[:MAX_SCRAPE]:
+            has_email = bool(c.get("contactEmail"))
+            has_phone = bool(c.get("contactPhone"))
+            has_founder = bool(c.get("contactName"))
+            if has_email and has_phone and has_founder:
+                logger.debug("│   Skip scraping %s — fields already filled", c.get("name", "?"))
+                continue
+            scrape_candidates.append(c)
+
+        scrape_urls = [c.get("url", "") for c in scrape_candidates if c.get("url")]
+
+        if scrape_urls:
+            logger.info("│ ── Phase 2.5: SELECTIVE SCRAPING (%d candidates, skipped %d already-filled) ──",
+                        len(scrape_urls), min(MAX_SCRAPE, len(all_candidates)) - len(scrape_urls))
+            new_progress.append(
+                f"\n🕷️ SCRAPING SELECTIVO (top {len(scrape_urls)} — emails, imagens, LinkedIn)..."
+            )
+
+            scraped_results = await batch_extract_content(scrape_urls)
+            scraped_map = {}
+            for s in scraped_results:
+                norm = normalize_url(s.url)
+                scraped_map[norm] = s
+
+            scrape_success = sum(1 for s in scraped_results if s.content)
+            logger.info("│ Selective scrape: %d/%d successfully scraped", scrape_success, len(scrape_urls))
+            new_progress.append(
+                f"   ✅ Scraping: {scrape_success}/{len(scrape_urls)} sites (emails, imagens, LinkedIn)"
+            )
+        else:
+            scraped_map = {}
+
+        # ================================================================
+        # PHASE 3: DEDUP + BRAND LEAD CREATION (merge LLM + Places + Scrape)
+        # ================================================================
+        phase3_in = len(all_candidates)
         seen_domains, seen_names, unique_results = set(), set(), []
         for data in all_candidates:
             url = data.get("url", "")
@@ -712,52 +949,37 @@ async def validation_node(
             seen_domains.add(domain)
             seen_names.add(name)
 
-            # Premium Street Detection
             content_obj = next((e for e in triage_passed if e.url == url), None)
-            content_text = content_obj.content if content_obj else ""
-            street, tier = detect_premium_location(content_text, target_city)
 
-            location_quality = (
-                "premium" if street else data.get("locationQuality", "standard")
-            )
-            location_score = calculate_location_score(street, tier) if street else 0
+            places_data = {}
+            if content_obj and content_obj.structured_data:
+                places_data = content_obj.structured_data.get("places", {})
 
-            unique_results.append(
-                BrandLead(
-                    name=data.get("name", "Unknown"),
-                    website_url=url,
-                    store_count=data.get("storeCount", 1) or 1,
-                    average_suit_price_usd=data.get("avgPrice") if data.get("avgPrice") is not None else 0,
-                    city=target_city,
-                    origin_country=data.get("country", "International"),
-                    verified=data.get("priceSource") == "found",
-                    brand_style=data.get("brandStyle", "Premium"),
-                    business_model=data.get("businessModel", "Retail"),
-                    company_overview=data.get("whySelected", ""),
-                    detailed_description=data.get("detailedDescription"),
-                    store_locations=data.get("storeLocations", []) or [],
-                    location_quality=location_quality,
-                    location_score=location_score,
-                    fit_score=data.get("fitScore") if data.get("fitScore") is not None else 0,
-                    wool_percentage=data.get("woolPercentage"),
-                    made_to_measure=data.get("madeToMeasure", False),
-                    contact_name=data.get("contactName"),
-                    contact_role=data.get("contactRole"),
-                    contact_email=data.get("contactEmail"),
-                    contact_phone=data.get("contactPhone"),
-                    headquarters_address=data.get("headquartersAddress"),
-                    passes_constraints=True,
-                    quality_score=getattr(content_obj, "quality_score", 0) if content_obj else 0,
-                    query_origin=getattr(content_obj, "query_origin", "Unknown") if content_obj else "Unknown",
-                    price_source=data.get("priceSource") or (content_obj.structured_data.get("price_source") if content_obj and content_obj.structured_data else None),
-                )
+            norm_url = normalize_url(url)
+            scraped = scraped_map.get(norm_url)
+            sd = scraped.structured_data if scraped and scraped.structured_data else {}
+
+            brand_lead = merge_brand_data(
+                llm_data=data,
+                places_data=places_data,
+                scraped_data=sd,
+                content_obj=content_obj,
+                target_city=target_city,
             )
+            unique_results.append(brand_lead)
 
         # Sort by fit_score descending, then quality_score
         unique_results.sort(
             key=lambda x: (x.fit_score, x.quality_score), reverse=True
         )
 
+        stage_log("phase3_dedup_assembly", target_city,
+                  candidates_in=phase3_in,
+                  candidates_out=len(unique_results))
+        logger.info("│ ── FINAL: %d unique brands selected ──", len(unique_results))
+        for b in unique_results:
+            logger.info("│   ✓ %s | fit=%d | price=$%.0f | %s", b.name, b.fit_score, b.average_suit_price_usd, b.website_url)
+        logger.info("└──────────────────────────────────────────────────")
         new_progress.append(f"\n🏆 {len(unique_results)} MARCAS SELECIONADAS")
         return {
             "potential_brands": unique_results,
@@ -765,7 +987,5 @@ async def validation_node(
             "progress": new_progress,
         }
     except Exception as error:
-        import traceback
-        traceback.print_exc()
-        print(f"[VALIDATION V3] Critical error: {error}")
+        logger.exception("CRITICAL ERROR in validation node")
         return {"potential_brands": [], "progress": [f"❌ Erro crítico: {error}"]}

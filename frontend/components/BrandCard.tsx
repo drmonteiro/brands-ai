@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { BrandLead, parseJsonArray } from "@/lib/types";
@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   MapPin,
   Phone,
   RefreshCw,
@@ -153,6 +155,15 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
     : 'Baixo';
 
   const priceNote = brand.price_note || (brand as any).priceNote || "";
+  const productImages = parseJsonArray(brand.product_images as any);
+
+  // Image carousel state
+  const [imgIndex, setImgIndex] = useState(0);
+  const [imgErrors, setImgErrors] = useState<Set<number>>(new Set());
+  const validImages = productImages.filter((_, i) => !imgErrors.has(i));
+  const handleImgError = useCallback((idx: number) => {
+    setImgErrors(prev => new Set(prev).add(idx));
+  }, []);
 
   // Format price
   const formatPrice = () => {
@@ -222,6 +233,55 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
             </div>
           </div>
         </div>
+
+        {/* Product Images */}
+        {validImages.length > 0 && (
+          <div className="relative mb-4 rounded-lg overflow-hidden bg-muted/30 group">
+            <div className="aspect-[16/9] relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={validImages[imgIndex % validImages.length]}
+                alt={`${brand.name} product`}
+                className="w-full h-full object-cover"
+                onError={() => {
+                  const actualIdx = productImages.indexOf(validImages[imgIndex % validImages.length]);
+                  if (actualIdx >= 0) handleImgError(actualIdx);
+                }}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
+              {validImages.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setImgIndex((imgIndex - 1 + validImages.length) % validImages.length)}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 p-1 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => setImgIndex((imgIndex + 1) % validImages.length)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+                    {validImages.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setImgIndex(i)}
+                        className={`w-1.5 h-1.5 rounded-full transition-all ${
+                          i === imgIndex % validImages.length
+                            ? "bg-white scale-125"
+                            : "bg-white/50"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Stats Grid */}
         <div className="grid grid-cols-3 gap-3 mb-4">

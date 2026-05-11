@@ -17,6 +17,7 @@ resend
 
 # Utilities
 pydantic
+pyyaml
 python-dotenv
 httpx
 aiohttp
@@ -38,3 +39,7 @@ gunicorn
 
 # WhatsApp (Twilio)
 twilio
+
+# Tests
+pytest
+pytest-asyncio

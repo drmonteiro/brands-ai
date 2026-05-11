@@ -5,21 +5,51 @@ Handles batch extraction from URLs with Jina Reader fallback and Deep Price Disc
 
 import asyncio
 import re
+import logging
 from typing import List, Optional, Dict
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from models import ExtractedContent
 from services.jina_reader import extract_with_jina
-from agents.nodes.utils import get_tavily_client, normalize_url, get_domain_from_url
+from agents.nodes.utils import normalize_url, get_domain_from_url
 import os
-from firecrawl import FirecrawlApp
-import json
-
-
 import json
 from config import Config
 from services.extraction.orchestrator import full_site_extraction_flow
 from services.crawl4ai_client import get_crawl4ai_client
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# FIRECRAWL CIRCUIT BREAKER
+# ============================================================================
+
+class FirecrawlCircuitBreaker:
+    """Disables Firecrawl after first 402 or 3 consecutive errors."""
+    def __init__(self):
+        self.disabled = False
+        self.error_count = 0
+
+    def should_skip(self) -> bool:
+        return self.disabled
+
+    def record_error(self, error_msg: str):
+        self.error_count += 1
+        if "402" in str(error_msg) or "Payment Required" in str(error_msg):
+            self.disabled = True
+            logger.error(
+                "[FIRECRAWL] Circuit breaker OPEN: no credits (402). "
+                "All remaining Firecrawl calls skipped."
+            )
+        elif self.error_count >= 3:
+            self.disabled = True
+            logger.error(
+                "[FIRECRAWL] Circuit breaker OPEN: too many errors (%d). "
+                "All remaining Firecrawl calls skipped.", self.error_count
+            )
+
+_firecrawl_breaker = FirecrawlCircuitBreaker()
 
 async def batch_extract_with_crawl4ai(urls: List[str]) -> List[ExtractedContent]:
     """
@@ -28,37 +58,46 @@ async def batch_extract_with_crawl4ai(urls: List[str]) -> List[ExtractedContent]
     if not urls:
         return []
     
-    print(f"[SCRAPER] Using Crawl4AI Multi-page Pipeline for {len(urls)} URLs...")
+    logger.info("Using Crawl4AI Multi-page Pipeline for %d URLs", len(urls))
     results = []
     
     async for client in get_crawl4ai_client():
-        # Semaphore para evitar sobrecarga do container Docker (máx 3 sites simultâneos)
-        sem = asyncio.Semaphore(3)
+        # Semaphore: 5 concurrent sites (4 pages each = ~20 active connections)
+        sem = asyncio.Semaphore(5)
         
         async def process_site(url):
             async with sem:
                 try:
-                    # O orquestrador já faz discovery, scrape de 5 produtos, stores e about
-                    data, tokens, homepage_md = await full_site_extraction_flow(client, url)
+                    data, extras, homepage_md = await full_site_extraction_flow(client, url)
                     
-                    # Importante: Mantemos o markdown da homepage no .content 
-                    # para que o validador possa fazer o keyword scoring e triage LLM.
-                    # Mas anexamos o resumo estruturado para dar visibilidade ao Phase 2.
                     structured_summary = f"=== CRAWL4AI STRUCTURED EXTRACTION ===\n"
                     structured_summary += f"BRAND: {data.brand_name or 'Unknown'}\n"
                     structured_summary += f"PRICES: {json.dumps([p.model_dump() for p in data.prices])}\n"
                     structured_summary += f"STORES: {json.dumps([s.model_dump() for s in data.store_addresses])}\n"
+                    if data.owner_name:
+                        structured_summary += f"OWNER: {data.owner_name} ({data.owner_role or 'N/A'})\n"
+                    if extras.get("contact_email"):
+                        structured_summary += f"EMAIL: {extras['contact_email']}\n"
+                    if extras.get("contact_linkedin"):
+                        structured_summary += f"LINKEDIN: {extras['contact_linkedin']}\n"
                     
                     final_content = f"{homepage_md}\n\n{structured_summary}"
+                    
+                    struct_data = data.model_dump()
+                    struct_data["contact_email"] = extras.get("contact_email")
+                    struct_data["email_priority"] = extras.get("email_priority")
+                    struct_data["email_category"] = extras.get("email_category")
+                    struct_data["contact_linkedin"] = extras.get("contact_linkedin")
+                    struct_data["product_images"] = data.product_images or []
                     
                     return ExtractedContent(
                         url=url,
                         content=final_content,
-                        structured_data=data.model_dump(),
+                        structured_data=struct_data,
                         extraction_method="crawl4ai"
                     )
                 except Exception as e:
-                    print(f"[SCRAPER] Crawl4AI error for {url}: {e}")
+                    logger.error(f"[SCRAPER] Crawl4AI error for {url}: {e}")
                     return ExtractedContent(url=url, content="", extraction_method="failed")
 
         results = await asyncio.gather(*(process_site(u) for u in urls))
@@ -77,58 +116,61 @@ async def batch_extract_content(urls: List[str]) -> List[ExtractedContent]:
     if Config.USE_CRAWL4AI:
         return await batch_extract_with_crawl4ai(urls)
 
-    # Initialize results with empty content
+    # Legacy Firecrawl path (circuit-breaker protected)
     results = [ExtractedContent(url=url, content="") for url in urls]
 
-    # 1. Try Firecrawl Scrape for ALL urls
-    print(f"[SCRAPER] Trying Firecrawl batch scrape for {len(urls)} URLs...")
-    
-    try:
-        app = FirecrawlApp(api_key=os.environ.get("FIRECRAWL_API_KEY"))
-    except Exception as e:
-        print(f"[SCRAPER] Error initializing Firecrawl: {e}")
-        app = None
-
-    BATCH_SIZE = 18
-    url_batches = [
-        urls[i : i + BATCH_SIZE] for i in range(0, len(urls), BATCH_SIZE)
-    ]
-
-    for batch_urls in url_batches:
+    if _firecrawl_breaker.should_skip():
+        logger.warning("[SCRAPER] Firecrawl circuit breaker is OPEN, skipping batch scrape")
+    else:
+        logger.info(f"[SCRAPER] Trying Firecrawl batch scrape for {len(urls)} URLs...")
         try:
-            if not app:
-                break
-                
-            extraction = app.batch_scrape(
-                batch_urls, 
-                formats=["markdown"], 
-                only_main_content=True
-            )
-            
-            # Firecrawl returns a dict with 'data' array where each item has 'url' and 'markdown'
-            if extraction and isinstance(extraction, dict) and extraction.get("data"):
-                for result in extraction["data"]:
-                    raw_content = result.get("markdown", "")
-                    url = result.get("url", "")
-                    # Also fallback to sourceURL if url is empty
-                    if not url and result.get("metadata", {}).get("sourceURL"):
-                        url = result.get("metadata")["sourceURL"]
-                        
-                    if raw_content and len(raw_content) > 500:
-                        # Find the index in original results to overwrite
-                        for idx, orig in enumerate(results):
-                            if normalize_url(orig.url) == normalize_url(url) or orig.url == url:
-                                results[idx] = ExtractedContent(
-                                    url=orig.url, content=raw_content[:15000] # Limite máximo: 15.000 chars
-                                )
-                                break
+            from firecrawl import FirecrawlApp
+            app = FirecrawlApp(api_key=os.environ.get("FIRECRAWL_API_KEY"))
         except Exception as e:
-            print(f"[SCRAPER] Firecrawl extraction error: {e}")
+            logger.error(f"[SCRAPER] Error initializing Firecrawl: {e}")
+            _firecrawl_breaker.record_error(str(e))
+            app = None
+
+        BATCH_SIZE = 18
+        url_batches = [
+            urls[i : i + BATCH_SIZE] for i in range(0, len(urls), BATCH_SIZE)
+        ]
+
+        for batch_urls in url_batches:
+            if _firecrawl_breaker.should_skip():
+                break
+            try:
+                if not app:
+                    break
+                    
+                extraction = app.batch_scrape(
+                    batch_urls, 
+                    formats=["markdown"], 
+                    only_main_content=True
+                )
+                
+                if extraction and isinstance(extraction, dict) and extraction.get("data"):
+                    for result in extraction["data"]:
+                        raw_content = result.get("markdown", "")
+                        url = result.get("url", "")
+                        if not url and result.get("metadata", {}).get("sourceURL"):
+                            url = result.get("metadata")["sourceURL"]
+                            
+                        if raw_content and len(raw_content) > 500:
+                            for idx, orig in enumerate(results):
+                                if normalize_url(orig.url) == normalize_url(url) or orig.url == url:
+                                    results[idx] = ExtractedContent(
+                                        url=orig.url, content=raw_content[:15000]
+                                    )
+                                    break
+            except Exception as e:
+                _firecrawl_breaker.record_error(str(e))
+                logger.warning(f"[SCRAPER] Firecrawl extraction error: {e}")
 
     # 2. Final Jina Fallback for anything still missing (Firecrawl alternative)
     final_failures = [r.url for r in results if not r.content or len(r.content) < 500]
     if final_failures:
-        print(f"[SCRAPER] Fallback to Jina Reader for {len(final_failures)} missed URLs...")
+        logger.info("Fallback to Jina Reader for %d missed URLs", len(final_failures))
         
         async def fetch_jina(url):
             try:
@@ -232,11 +274,11 @@ async def enrich_content_with_prices(
             except Exception:
                 pass
 
-            # Fallback: Site Search with Firecrawl Extract
-            if not shop_link:
+            # Fallback: Site Search with Firecrawl Extract (circuit-breaker protected)
+            # Skip entirely when Crawl4AI is active — prices come from the orchestrator
+            if not shop_link and not Config.USE_CRAWL4AI and not _firecrawl_breaker.should_skip():
                 try:
-                    domain = get_domain_from_url(item.url)
-                    
+                    from firecrawl import FirecrawlApp
                     schema = {
                         "type": "object",
                         "properties": {
@@ -259,14 +301,13 @@ async def enrich_content_with_prices(
                         schema=schema
                     )
                     
-                    # Store extraction directly in the content string so downstream regex extractor
-                    # and GPT stages can utilize the price_confidence and the structured output
                     if extract_res and isinstance(extract_res, dict) and extract_res.get("data"):
                         extract_data = extract_res["data"][0] if isinstance(extract_res["data"], list) else extract_res["data"]
                         item.content += f"\n\n=== FIRECRAWL PRICE EXTRACT ===\n{json.dumps(extract_data, indent=2)}\n"
                         
                 except Exception as e:
-                    print(f"[SCRAPER] Firecrawl extract error on fallback: {e}")
+                    _firecrawl_breaker.record_error(str(e))
+                    logger.warning(f"[SCRAPER] Firecrawl extract error on fallback: {e}")
 
             if shop_link and normalize_url(shop_link) != normalize_url(item.url):
                 urls_to_fetch_secondary.append(shop_link)

@@ -3,7 +3,7 @@ Pydantic models for the Confeções Lança prospector
 """
 
 import json
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
@@ -155,7 +155,14 @@ class SearchConfigRequest(BaseModel):
 # ============================================================================
 
 class BrandLead(BaseModel):
-    """Schema for a discovered brand lead"""
+    """
+    Schema for a discovered brand lead.
+
+    LLM UNGROUNDED VALUES (Task 5 trust hierarchy):
+    - Optional[bool] fields use ``None`` = unknown / not grounded in source text
+      (distinct from ``False`` = model asserts negative).
+    - ``wool_percentage`` None = unknown wool content (not the same as 0%% wool).
+    """
     model_config = ConfigDict(populate_by_name=True)
 
     id: Optional[str] = None
@@ -173,11 +180,34 @@ class BrandLead(BaseModel):
     language_of_result: Optional[str] = Field(None, alias="languageOfResult")
     
     passes_constraints: bool = Field(default=False, alias="passesConstraints")
-    wool_percentage: Optional[str] = Field(None, alias="woolPercentage")
-    made_to_measure: bool = Field(default=False, alias="madeToMeasure")
-    
-    # [V2.1] Chain Detection
-    is_chain: bool = Field(default=False, alias="isChain")
+    wool_percentage: Optional[str] = Field(
+        default=None,
+        alias="woolPercentage",
+        description="None = LLM did not ground wool facts in source text",
+    )
+    made_to_measure: Optional[bool] = Field(
+        default=None,
+        alias="madeToMeasure",
+        description="None = unknown; False = no MTM; True = offers MTM",
+    )
+    bespoke_only: Optional[bool] = Field(
+        default=None,
+        alias="bespokeOnly",
+        description="None = unknown; False/True from grounded LLM output",
+    )
+    appointment_only: Optional[bool] = Field(
+        default=None,
+        alias="appointmentOnly",
+        description="None = unknown; True if appointment-only boutique",
+    )
+    prices_visible: Optional[bool] = Field(
+        default=None,
+        alias="pricesVisible",
+        description="None = unknown; True if prices shown on site",
+    )
+
+    # [V2.1] Chain Detection — LLM may return null when unsure
+    is_chain: Optional[bool] = Field(default=None, alias="isChain")
     
     # Extended company information
     revenue: Optional[str] = None
@@ -202,18 +232,109 @@ class BrandLead(BaseModel):
     contact_role: Optional[str] = Field(None, alias="contactRole")
     contact_email: Optional[str] = Field(None, alias="contactEmail")
     contact_phone: Optional[str] = Field(None, alias="contactPhone")
+    contact_linkedin: Optional[str] = Field(None, alias="contactLinkedin")
+    
+    # [V4] Email extraction metadata
+    email_priority: Optional[int] = Field(default=None, alias="emailPriority")
+    email_category: Optional[str] = Field(default=None, alias="emailCategory")
+    
+    # [V4] Owner/decisor extracted via LLM
+    owner_name: Optional[str] = Field(default=None, alias="ownerName")
+    owner_role: Optional[str] = Field(default=None, alias="ownerRole")
     
     # [V3.1] Headquarters information
     headquarters_address: Optional[str] = Field(None, alias="headquartersAddress")
     
+    # Product images scraped from the brand's website
+    product_images: Optional[List[str]] = Field(default_factory=list, alias="productImages")
+    
     # Compatibility field for DB/Frontend mismatch
     avg_suit_price_eur: Optional[float] = Field(default=None)
-    fit_score: int = Field(default=0, alias="fitScore")
+    fit_score: Optional[int] = Field(default=0, alias="fitScore")
     price_note: Optional[str] = Field(default=None, alias="priceNote")
     material_composition: Optional[List[str]] = Field(default_factory=list, alias="materialComposition")
     price_source: Optional[str] = Field(default=None, alias="priceSource")
+    # City presence classification from validator Phase 2b
+    city_presence_type: Optional[str] = Field(
+        default=None,
+        alias="cityPresenceType",
+        description="hq | store | showroom | ambiguous | unknown",
+    )
 
-    @field_validator('verification_log', 'clothing_types', 'store_locations', 'material_composition', mode='before')
+    @field_validator("made_to_measure",
+        "bespoke_only",
+        "appointment_only",
+        "prices_visible",
+        "is_chain",
+        mode="before",
+    )
+    @classmethod
+    def coerce_llm_booleans(cls, v):
+        """Accept JSON null; coerce string 'true'/'false' from sloppy parsers."""
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s in ("true", "1", "yes"):
+                return True
+            if s in ("false", "0", "no"):
+                return False
+            return None
+        return v
+
+    @field_validator("fit_score", mode="before")
+    @classmethod
+    def coerce_fit_score(cls, v):
+        if v is None:
+            return 0
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+
+    @field_validator("store_count", mode="before")
+    @classmethod
+    def coerce_store_count(cls, v):
+        if v is None:
+            return 1
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 1
+
+    @field_validator("average_suit_price_usd", mode="before")
+    @classmethod
+    def coerce_avg_price_usd(cls, v):
+        if v is None:
+            return 0
+        try:
+            f = float(v)
+            return max(0.0, f)
+        except (TypeError, ValueError):
+            return 0
+
+    @model_validator(mode="after")
+    def collect_unknown_llm_fields(self):
+        """Annotate which boolean-like fields are unknown vs explicit false (debugging)."""
+        unknown = []
+        if self.made_to_measure is None:
+            unknown.append("made_to_measure")
+        if self.bespoke_only is None:
+            unknown.append("bespoke_only")
+        if self.appointment_only is None:
+            unknown.append("appointment_only")
+        if self.prices_visible is None:
+            unknown.append("prices_visible")
+        if self.is_chain is None:
+            unknown.append("is_chain")
+        if self.wool_percentage is None:
+            unknown.append("wool_percentage")
+        object.__setattr__(self, "_llm_unknown_fields", unknown)
+        return self
+
+    @field_validator('verification_log', 'clothing_types', 'store_locations', 'material_composition', 'product_images', mode='before')
     @classmethod
     def parse_json_fields(cls, v):
         if isinstance(v, str):
@@ -282,6 +403,7 @@ class ProspectorState(BaseModel):
     tier: int = 2 # 1=Global Metro, 2=Regional
     search_queries: List[str] = Field(default_factory=list)
     query_origins: List[str] = Field(default_factory=list) # To track axis/source
+    query_languages: List[str] = Field(default_factory=list) # ISO 639-1 per query
     candidate_urls: List[str] = Field(default_factory=list)
     potential_brands: List[BrandLead] = Field(default_factory=list)
     verified_brands: List[BrandLead] = Field(default_factory=list)

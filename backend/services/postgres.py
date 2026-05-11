@@ -10,16 +10,21 @@ import ssl
 class PostgresManager:
     _pool: Optional[asyncpg.Pool] = None
 
+    # TCP keepalive settings to prevent Neon/Azure from dropping idle connections
+    _server_settings = {
+        "tcp_keepalives_idle": "30",
+        "tcp_keepalives_interval": "10",
+        "tcp_keepalives_count": "5",
+    }
+
     @classmethod
     async def get_pool(cls) -> asyncpg.Pool:
         if cls._pool is None:
             dsn = os.getenv("SYNC_DATABASE_URL") or os.getenv("DATABASE_URL")
             
-            # Treat empty strings as None
             if dsn and not dsn.strip():
                 dsn = None
             
-            # Azure/Neon usually require explicit SSL context for asyncpg
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
@@ -29,12 +34,13 @@ class PostgresManager:
                     cls._pool = await asyncpg.create_pool(
                         dsn=dsn,
                         min_size=1,
-                        max_size=10,
+                        max_size=5,
+                        max_inactive_connection_lifetime=300,
                         ssl=ctx,
-                        command_timeout=60
+                        command_timeout=60,
+                        server_settings=cls._server_settings,
                     )
                 else:
-                    # Fallbacks for local/development use (NOT hardcoding production secrets)
                     user = os.getenv("POSTGRES_USER")
                     if not user or not user.strip(): user = "lanca"
                         
@@ -58,9 +64,11 @@ class PostgresManager:
                         host=host,
                         port=port,
                         min_size=1,
-                        max_size=10,
+                        max_size=5,
+                        max_inactive_connection_lifetime=300,
                         ssl=ctx,
-                        command_timeout=60
+                        command_timeout=60,
+                        server_settings=cls._server_settings,
                     )
             except Exception as e:
                 print(f"[DATABASE] Error creating connection pool: {e}")

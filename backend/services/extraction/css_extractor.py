@@ -26,9 +26,21 @@ class ExtractedBoutiqueData(BaseModel):
     prices: List[PriceItem] = Field(default_factory=list, description="List of prices found for complete suits or formal jackets.")
     store_addresses: List[StoreAddress] = Field(default_factory=list, description="List of physical store locations owned by the brand.")
     brand_name: Optional[str] = Field(None, description="The official name of the brand or boutique.")
+    owner_name: Optional[str] = Field(
+        default=None,
+        description="Nome do fundador, owner, CEO ou director da marca"
+    )
+    owner_role: Optional[str] = Field(
+        default=None,
+        description="Cargo: Founder, CEO, Owner, Director, etc."
+    )
     price_source: Optional[str] = Field(
         default=None, 
         description="'css' se extraído via Camada 1, 'llm' se via Camada 2, 'mixed' ou 'none'"
+    )
+    product_images: List[str] = Field(
+        default_factory=list,
+        description="URLs of product images (suits, jackets, trousers) extracted from the site."
     )
 
 class CSSExtractor:

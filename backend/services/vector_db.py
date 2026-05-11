@@ -244,7 +244,11 @@ async def generate_similarity_explanation(
         "store_count": prospect.get("store_count", 0),
         "price_eur": prospect.get("avg_suit_price_eur", 0),
         "wool": prospect.get("wool_percentage", "unknown"),
-        "mtm": prospect.get("made_to_measure", "unknown"),
+        "mtm": (
+            "unknown"
+            if prospect.get("made_to_measure") is None
+            else prospect.get("made_to_measure")
+        ),
         "style": prospect.get("brand_style", "unknown"),
         "business": prospect.get("business_model", "unknown"),
     }
@@ -319,292 +323,22 @@ Explanation:"""
 
 
 # ============================================================================
-# SCORING FUNCTIONS - DATA-DRIVEN (Based on 18 Real Lança Clients)
+# SCORING — delegated to services.scoring (extracted for modularity)
+# Re-export for backward compatibility with existing imports.
 # ============================================================================
-#
-# Thresholds derived from analysis of 18 existing Lança clients:
-# - Price: Min €375, Max €1500, Median €800
-# - Stores: Min 1, Max 30, Median 4
-# - 100% Wool: 18/18 (100%)
-# - Made-to-Measure: 14/18 (78%)
-# - Own Brand: 15/18 (83%)
-#
-
-# Hard filter thresholds (based on min/max of existing clients)
-HARD_FILTER_MIN_PRICE_EUR = 375   # Minimum price among 18 clients
-HARD_FILTER_MAX_STORES = 30       # Maximum stores among 18 clients
-
-# Scoring thresholds (based on median of existing clients)
-IDEAL_PRICE_EUR = 800   # Median price of 18 clients
-IDEAL_MAX_STORES = 4    # Median store count of 18 clients
-
-
-def passes_hard_filters(prospect: Dict) -> Tuple[bool, str]:
-    """
-    Check if prospect passes hard filters based on 18 client analysis.
-    
-    Returns:
-        Tuple of (passes: bool, rejection_reason: str or None)
-    """
-    price = prospect.get("avg_suit_price_eur", 0)
-    stores = prospect.get("store_count", 0)
-    
-    # Parse store count if string
-    if isinstance(stores, str):
-        try:
-            stores = int(stores) if stores.isdigit() else 0
-        except:
-            stores = 0
-    
-    # Filter 1: Price too low (if price is known)
-    if isinstance(price, (int, float)) and price > 0 and price < HARD_FILTER_MIN_PRICE_EUR:
-        return False, "price_too_low"
-    
-    # Filter 2: Too many stores
-    if stores > HARD_FILTER_MAX_STORES:
-        return False, "too_many_stores"
-    
-    return True, None
-
-
-def calculate_price_score(price: float) -> int:
-    """
-    Calculate price score based on 18 client analysis.
-    
-    Thresholds:
-    - €800+ (median of clients) = 30 pts (max)
-    - €500-799 = 20 pts
-    - €375-499 = 10 pts
-    - Unknown (0) = 15 pts (don't penalize missing data)
-    - Below €375 = 0 pts (should be filtered out)
-    """
-    if price == 0 or price is None:
-        return 12  # Unknown price - neutral score
-    elif price >= IDEAL_PRICE_EUR:
-        return 25  # At or above median (ideal)
-    elif price >= 500:
-        return 18  # Good price point
-    elif price >= HARD_FILTER_MIN_PRICE_EUR:
-        return 8   # Acceptable minimum
-    else:
-        return 0   # Below threshold
-
-
-def calculate_size_score(store_count: int) -> int:
-    """
-    Calculate store size score based on 18 client analysis.
-    
-    Thresholds:
-    - 1-4 stores (median of clients) = 30 pts (max)
-    - 5-10 stores = 20 pts
-    - 11-20 stores = 10 pts
-    - 21-30 stores = 5 pts (still within max client range)
-    - 0 stores (B2B/unknown) = 25 pts (often good)
-    """
-    if store_count == 0:
-        return 15  # B2B/Manufacturing or unknown
-    elif store_count <= IDEAL_MAX_STORES:
-        return 20  # At or below median (ideal)
-    elif store_count <= 10:
-        return 15  # Good size
-    elif store_count <= 20:
-        return 8   # Acceptable
-    elif store_count <= HARD_FILTER_MAX_STORES:
-        return 4   # Within range but large
-    else:
-        return 0  # Too big
-
-
-def calculate_wool_score(wool_percentage: str) -> int:
-    """
-    Calculate wool score based on 18 client analysis.
-    
-    100% of Lança clients use 100% wool, so this is critical.
-    - 100% wool = 15 pts (max)
-    - Wool blend/mentioned = 5 pts
-    - Unknown/Other = 0 pts
-    """
-    wool_str = str(wool_percentage).lower()
-    if "100" in wool_str:
-        return 15  # 100% wool (like all 18 clients)
-    elif "wool" in wool_str or "lã" in wool_str:
-        return 5   # Wool mentioned but not 100%
-    else:
-        return 0   # Unknown or synthetic
-
-
-def calculate_mtm_score(made_to_measure: any) -> int:
-    """
-    Calculate made-to-measure score based on 18 client analysis.
-    
-    78% of Lança clients offer MTM, so it's preferred but not required.
-    - MTM = True = 15 pts (max)
-    - MTM = False = 5 pts (still acceptable, 22% of clients don't have it)
-    - Unknown = 8 pts (neutral)
-    """
-    if made_to_measure is True or str(made_to_measure).lower() == "true":
-        return 10  # Has MTM (like 78% of clients)
-    elif made_to_measure is False or str(made_to_measure).lower() == "false":
-        return 3   # No MTM (like 22% of clients)
-    else:
-        return 5   # Unknown
-
-
-def get_market_strength_score(country_code: str) -> float:
-    """
-    Get market strength score based on existing Lança clients in that country.
-    Unchanged from before - uses MARKET_STRENGTH_STATIC.
-    """
-    strength = MARKET_STRENGTH_STATIC.get(country_code, 0)
-    return min(strength * 0.2, 10)  # Max 10 pts (reduced weight)
-
-
-# ============================================================================
-# MAIN SCORING FUNCTION (for database.py integration)
-# ============================================================================
-
-async def calculate_prospect_score(prospect: Dict) -> Tuple[Dict, List[Dict]]:
-    """
-    Calculate the final score for a prospect using DATA-DRIVEN scoring.
-    
-    NEW SCORING SYSTEM (based on 18 real Lança client analysis):
-    - Similarity Score: 0-20 pts (Matches Lança's "Golden Profile")
-    - Price Score: 0-25 pts (€800+ ideal)
-    - Size Score: 0-20 pts (1-4 stores ideal)
-    - Wool Score: 0-15 pts (100% wool focus)
-    - MTM Score: 0-10 pts (Made-to-measure capability)
-    - Market Score: 0-10 pts (Presence in priority markets)
-    
-    Total: 0-100 points
-    
-    Also checks hard filters:
-    - Price < €375 → rejection
-    - Stores > 30 → rejection
-    
-    Returns:
-        Tuple of (scores_dict, similar_clients_list)
-    """
-    # Check hard filters first
-    passes, rejection_reason = passes_hard_filters(prospect)
-    
-    # Generate profile text for the prospect
-    prospect_description = generate_client_profile_text(prospect)
-    
-    # Find similar clients (generates temporary embedding, not stored)
-    similar_clients = await find_similar_clients(prospect_description, n_results=5)
-    
-    # Parse store count
-    store_count = prospect.get("store_count", 0)
-    if isinstance(store_count, str):
-        try:
-            store_count = int(store_count) if store_count.isdigit() else 0
-        except:
-            store_count = 0
-    
-    # Parse price
-    price = prospect.get("avg_suit_price_eur", 0)
-    if isinstance(price, str):
-        try:
-            price = float(price) if price.replace('.', '').isdigit() else 0
-        except:
-            price = 0
-    
-    # Calculate individual scores
-    mtm_score = calculate_mtm_score(prospect.get("made_to_measure", None))
-    
-    # Similarity score (0-20 pts)
-    if similar_clients:
-        top_similarity = min(similar_clients[0]["similarity"], 100)  # Best match %
-        similarity_score = (top_similarity / 100) * 20  # Linear scale 0-20 pts
-    else:
-        similarity_score = 10  # Neutral
-    
-    # Market score (0-10 pts)
-    country_code = prospect.get("country_code", "XX")
-    market_score = get_market_strength_score(country_code)
-    
-    # Fit Score (LLM judgment) (0-15 pts)
-    # The fit_score from deep analysis is 0-100, we map it to 0-15
-    llm_raw_fit = prospect.get("fit_score", 0)
-    try:
-        llm_raw_fit = float(llm_raw_fit)
-    except:
-        llm_raw_fit = 0
-    fit_score_bonus = (llm_raw_fit / 100) * 15
-
-    # Rebalanced Weights for 100 pts total:
-    # Price: 20, Size: 15, Wool: 10, MTM: 10, Similarity: 20, Market: 10, LLM Fit: 15
-    final_score = (
-        (calculate_price_score(price) * 0.8) +    # 0-20 pts
-        (calculate_size_score(store_count) * 0.75) + # 0-15 pts
-        (calculate_wool_score(prospect.get("wool_percentage", "unknown")) * 0.67) + # 0-10 pts
-        mtm_score +         # 0-10 pts
-        similarity_score +  # 0-20 pts
-        market_score +      # 0-10 pts
-        fit_score_bonus     # 0-15 pts
-    )
-    
-    # If fails hard filters, cap score at 40
-    if not passes:
-        final_score = min(final_score, 40)
-    
-    # Build explanation
-    most_similar = similar_clients[0] if similar_clients else None
-    
-    # Generate similarity explanation
-    similarity_explanation = None
-    if most_similar:
-        try:
-            similarity_explanation = await generate_similarity_explanation(
-                prospect,
-                most_similar,
-                most_similar["similarity"]
-            )
-        except Exception as e:
-            print(f"[VECTOR-DB] Warning: Could not generate similarity explanation: {e}")
-            similarity_explanation = f"Similar to {most_similar['name']} ({most_similar['similarity']:.1f}% match) based on brand profile and positioning."
-    
-    # Determine size category
-    if store_count <= IDEAL_MAX_STORES:
-        size_category = "ideal boutique"
-    elif store_count <= 10:
-        size_category = "small chain"
-    elif store_count <= 20:
-        size_category = "medium chain"
-    else:
-        size_category = "large chain"
-    
-    scores = {
-        "final_score": round(final_score, 2),
-        "passes_hard_filters": passes,
-        "rejection_reason": rejection_reason,
-        "breakdown": {
-            "price_score": round(calculate_price_score(price) * 0.8, 2),
-            "size_score": round(calculate_size_score(store_count) * 0.75, 2),
-            "wool_score": round(calculate_wool_score(prospect.get("wool_percentage", "unknown")) * 0.67, 2),
-            "mtm_score": mtm_score,
-            "similarity_score": round(similarity_score, 2),
-            "market_score": round(market_score, 2),
-            "llm_fit_score": round(fit_score_bonus, 2),
-        },
-        "thresholds": {
-            "ideal_price_eur": IDEAL_PRICE_EUR,
-            "ideal_max_stores": IDEAL_MAX_STORES,
-            "hard_filter_min_price": HARD_FILTER_MIN_PRICE_EUR,
-            "hard_filter_max_stores": HARD_FILTER_MAX_STORES,
-        },
-        "explanation": {
-            "price": f"€{price:.0f}" if price > 0 else "Unknown",
-            "size": f"{store_count} stores → {size_category}",
-            "wool": prospect.get("wool_percentage", "Unknown"),
-            "mtm": "Yes" if prospect.get("made_to_measure") else "No/Unknown",
-            "most_similar_client": most_similar["name"] if most_similar else "N/A",
-            "similarity_to_best_match": most_similar["similarity"] if most_similar else 0,
-            "similarity_explanation": similarity_explanation,
-        }
-    }
-    
-    return scores, similar_clients
+from services.scoring import (  # noqa: F401
+    calculate_prospect_score,
+    passes_hard_filters,
+    calculate_price_score,
+    calculate_size_score,
+    calculate_wool_score,
+    calculate_mtm_score,
+    get_market_strength_score,
+    HARD_FILTER_MIN_PRICE_EUR,
+    HARD_FILTER_MAX_STORES,
+    IDEAL_PRICE_EUR,
+    IDEAL_MAX_STORES,
+)
 
 
 # ============================================================================

@@ -6,12 +6,15 @@ Includes heartbeat mechanism to prevent Azure SSE timeout on large cities.
 import json
 import asyncio
 import time
+import logging
 from datetime import datetime
 from typing import Dict, AsyncGenerator
 from models import BrandLead
 from agents.nodes.initializer import create_initial_state
 from agents.graph import run_prospector_workflow, _get_app_with_postgres
 from services.database import city_has_results, get_prospects_by_city
+
+logger = logging.getLogger("workflow")
 
 # Heartbeat interval in seconds — Azure Static Web Apps times out idle SSE after ~240s
 # Send heartbeat every 25s to keep the connection alive
@@ -20,9 +23,12 @@ HEARTBEAT_INTERVAL = 25.0
 
 async def prospect_event_generator(city: str, force_refresh: bool = False) -> AsyncGenerator[str, None]:
     """SSE generator for new prospecting search with heartbeat to prevent Azure timeout."""
+    start_time = time.time()
+    logger.info("Starting prospect pipeline for '%s' (force_refresh=%s)", city, force_refresh)
     try:
         # 1. Cache handling
         if not force_refresh and await city_has_results(city):
+            logger.info("Cache HIT for '%s' — returning cached results", city)
             yield f"data: {json.dumps({'type': 'progress', 'message': f'📦 Usando cache para {city}'})}\n\n"
             cached_leads = await get_prospects_by_city(city, limit=50)
             # Convert to dicts for JSON serialization, handling pydantic models if they appear
@@ -63,17 +69,19 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
                         "locationScore": b.get("location_score", 0),
                         "fitScore": b.get("fit_score", 0),
                         "woolPercentage": material_comp[0] if material_comp else None,
-                        "madeToMeasure": b.get("made_to_measure", False),
+            "madeToMeasure": b.get("made_to_measure") is True,
                         "headquartersAddress": b.get("headquarters_address")
                     }
                     brands.append(brand_dict)
                 else:
                     brands.append(b)
 
+            logger.info("Returning %d cached brands for '%s' (%.1fs)", len(brands), city, time.time() - start_time)
             yield f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands, 'cached': True})}\n\n"
             return
 
         # 2. Run Workflow (STREAMING with heartbeat)
+        logger.info("Cache MISS for '%s' — starting full LangGraph workflow", city)
         initial_state = create_initial_state(city).model_dump()
         initial_state["force_refresh"] = force_refresh
         
@@ -95,9 +103,10 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
             last_yielded_progress_idx = 0
             final_result = {}
             try:
+                logger.info("Compiling LangGraph app (thread=%s)", thread_id)
                 async with _get_app_with_postgres() as app:
+                    logger.info("Streaming graph execution for '%s'...", city)
                     async for event in app.astream(initial_state, config=config, stream_mode="values"):
-                        # Track latest state result
                         final_result = event
                         
                         # Check for new progress messages to stream
@@ -113,16 +122,18 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
                     interrupted = len(state.next) > 0
                     
                     if interrupted:
+                        logger.info("Graph paused — waiting approval at node '%s'", state.next[0])
                         msg = f"data: {json.dumps({'type': 'waiting_approval', 'next_node': state.next[0], 'thread_id': thread_id})}\n\n"
                         await queue.put(msg)
                     else:
                         raw_brands = final_result.get('verified_brands', [])
                         brands = [b.model_dump(by_alias=True) if hasattr(b, 'model_dump') else b for b in raw_brands]
+                        elapsed = time.time() - start_time
+                        logger.info("Pipeline COMPLETE for '%s': %d brands found in %.1fs", city, len(brands), elapsed)
                         msg = f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands})}\n\n"
                         await queue.put(msg)
             except Exception as e:
-                import traceback
-                traceback.print_exc()
+                logger.exception("Workflow error for '%s'", city)
                 error_msg = f"data: {json.dumps({'type': 'error', 'message': str(e) or 'Erro interno no servidor'})}\n\n"
                 await queue.put(error_msg)
             finally:
@@ -152,8 +163,7 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
         await workflow_task
             
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Fatal error in prospect_event_generator for '%s'", city)
         yield f"data: {json.dumps({'type': 'error', 'message': str(e) or 'Erro interno no servidor'})}\n\n"
 
 async def resume_workflow_generator(thread_id: str, node: str, data: Dict) -> AsyncGenerator[str, None]:
