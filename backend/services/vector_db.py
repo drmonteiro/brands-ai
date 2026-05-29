@@ -9,8 +9,10 @@ This service ONLY handles:
 IMPORTANT: Prospects are NOT stored here (see database.py)
 """
 
+import asyncio
 import os
 import json
+import logging
 from typing import List, Dict, Optional, Tuple
 from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 
@@ -22,6 +24,8 @@ from data.lanca_clients import (
     get_top_clients,
 )
 from .postgres import PostgresManager
+
+logger = logging.getLogger("services.vector_db")
 
 # ============================================================================
 # VECTOR DATABASE SETUP (PostgreSQL + pgvector)
@@ -174,50 +178,88 @@ async def populate_clients_database(force_refresh: bool = False) -> Dict:
             )
     
     return {"status": "success", "count": len(LANCA_CLIENTS)}
+
+
+def _rows_to_similar_clients(rows) -> List[Dict]:
+    similar_clients = []
+    for row in rows:
+        client_dict = dict(row)
+        similarity = client_dict.pop("similarity_score")
+        similar_clients.append({
+            "id": client_dict["id"],
+            "name": client_dict["name"],
+            "country": client_dict["country"],
+            "similarity": round(similarity * 100, 2),
+            "metadata": client_dict,
+            "profile": client_dict["profile_text"],
+        })
+    return similar_clients
+
+
+async def _fetch_similar_for_embedding(
+    conn,
+    embedding: List[float],
+    n_results: int,
+) -> List[Dict]:
+    rows = await conn.fetch(
+        """
+            SELECT *, 1 - (embedding <=> $1::vector) as similarity_score
+            FROM lanca_clients
+            ORDER BY embedding <=> $1::vector
+            LIMIT $2
+        """,
+        str(embedding),
+        n_results,
+    )
+    return _rows_to_similar_clients(rows)
+
+
+async def find_similar_clients_batch(
+    prospect_descriptions: List[str],
+    n_results: int = 10,
+    filter_metadata: Optional[Dict] = None,
+) -> List[List[Dict]]:
+    """
+    Batch embedding + pgvector search. One API call for all inputs; order preserved.
+    """
+    if not prospect_descriptions:
+        return []
+
+    if filter_metadata:
+        logger.debug("filter_metadata ignored in find_similar_clients_batch")
+
+    pool = await PostgresManager.get_pool()
+    embeddings_fn = get_azure_embeddings()
+    vectors = await embeddings_fn.aembed_documents(list(prospect_descriptions))
+
+    if len(vectors) != len(prospect_descriptions):
+        raise ValueError(
+            f"Embedding batch size mismatch: got {len(vectors)} for "
+            f"{len(prospect_descriptions)} inputs"
+        )
+
+    async with pool.acquire() as conn:
+        count = await conn.fetchval("SELECT COUNT(*) FROM lanca_clients")
+    if count == 0:
+        await populate_clients_database()
+
+    async def _query_one(embedding: List[float]) -> List[Dict]:
+        async with pool.acquire() as conn:
+            return await _fetch_similar_for_embedding(conn, embedding, n_results)
+
+    return list(await asyncio.gather(*[_query_one(v) for v in vectors]))
+
+
 async def find_similar_clients(
     prospect_description: str,
     n_results: int = 10,
     filter_metadata: Optional[Dict] = None,
 ) -> List[Dict]:
-    """
-    Find the most similar Lança clients using pgvector.
-    """
-    pool = await PostgresManager.get_pool()
-    embeddings_fn = get_azure_embeddings()
-    
-    # Generate TEMPORARY embedding
-    embedding = await embeddings_fn.aembed_query(prospect_description)
-    
-    async with pool.acquire() as conn:
-        # Check if empty
-        count = await conn.fetchval("SELECT COUNT(*) FROM lanca_clients")
-        if count == 0:
-            await populate_clients_database()
-            
-        # Vector similarity search using cosine distance (<=>)
-        rows = await conn.fetch(f"""
-            SELECT *, 1 - (embedding <=> $1::vector) as similarity_score
-            FROM lanca_clients
-            ORDER BY embedding <=> $1::vector
-            LIMIT $2
-        """, str(embedding), n_results)
-        
-        similar_clients = []
-        for row in rows:
-            # Convert record to dict and handle metadata structure
-            client_dict = dict(row)
-            similarity = client_dict.pop('similarity_score')
-            
-            similar_clients.append({
-                "id": client_dict['id'],
-                "name": client_dict['name'],
-                "country": client_dict['country'],
-                "similarity": round(similarity * 100, 2),
-                "metadata": client_dict,
-                "profile": client_dict['profile_text'],
-            })
-            
-    return similar_clients
+    """Find the most similar Lança clients using pgvector (single prospect)."""
+    batch = await find_similar_clients_batch(
+        [prospect_description], n_results=n_results, filter_metadata=filter_metadata
+    )
+    return batch[0] if batch else []
 
 
 # ============================================================================

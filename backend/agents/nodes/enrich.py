@@ -41,6 +41,8 @@ logger = logging.getLogger("node.enrich")
 
 ENRICH_BATCH_SIZE = 6
 DISCOVERY_SLICE = 10_000
+# Max concurrent unified-LLM batches (N3c); 0 = unlimited (all batches at once)
+ENRICH_LLM_BATCH_CONCURRENT = int(os.environ.get("ENRICH_LLM_BATCH_CONCURRENT", "0"))
 
 
 # ============================================================================
@@ -450,21 +452,42 @@ async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
     step_end(logger, "N3b_EXA_SUPPLEMENT", target_city, t_exa, brands_with_exa=fetched)
     progress.append(f"✅ Exa suplementar: conteúdo extra em {fetched}/{len(working)} marcas")
 
-    # N3c: unified LLM extraction (batched)
+    # N3c: unified LLM extraction (batches in parallel)
     t_llm = step_begin(logger, "N3c_LLM_UNIFIED", target_city,
-                       "Extracção estruturada única (discovery + Exa).")
-    all_structured: List[Dict] = []
-    for batch_start in range(0, len(working), ENRICH_BATCH_SIZE):
+                       "Extracção estruturada única (discovery + Exa), batches paralelos.")
+    total_batches = (len(working) + ENRICH_BATCH_SIZE - 1) // ENRICH_BATCH_SIZE
+    llm_sem = (
+        asyncio.Semaphore(ENRICH_LLM_BATCH_CONCURRENT)
+        if ENRICH_LLM_BATCH_CONCURRENT > 0
+        else None
+    )
+
+    async def _run_unified_batch(batch_start: int) -> tuple:
+        if llm_sem:
+            async with llm_sem:
+                return await _run_unified_batch_inner(batch_start)
+        return await _run_unified_batch_inner(batch_start)
+
+    async def _run_unified_batch_inner(batch_start: int) -> tuple:
         batch = working[batch_start:batch_start + ENRICH_BATCH_SIZE]
         batch_exa = exa_contents[batch_start:batch_start + ENRICH_BATCH_SIZE]
         batch_num = (batch_start // ENRICH_BATCH_SIZE) + 1
-        total_batches = (len(working) + ENRICH_BATCH_SIZE - 1) // ENRICH_BATCH_SIZE
-        progress.append(f"  🔬 LLM unified batch {batch_num}/{total_batches}")
+        logger.info("Enrich LLM unified batch %d/%d (%d brands)", batch_num, total_batches, len(batch))
         extracted = await _extract_structured_batch(batch, batch_exa, target_city, target_country)
+        merged_rows = []
         for i, row in enumerate(extracted):
             if i < len(batch):
-                merged = _merge_extracted_into_brand(batch[i], row, batch[i])
-                all_structured.append(merged)
+                merged_rows.append(_merge_extracted_into_brand(batch[i], row, batch[i]))
+        return batch_start, batch_num, merged_rows
+
+    batch_starts = list(range(0, len(working), ENRICH_BATCH_SIZE))
+    progress.append(f"  🔬 LLM unified: {total_batches} batches em paralelo")
+    batch_results = await asyncio.gather(*[_run_unified_batch(bs) for bs in batch_starts])
+    batch_results.sort(key=lambda x: x[0])
+    all_structured: List[Dict] = []
+    for _bs, batch_num, merged_rows in batch_results:
+        all_structured.extend(merged_rows)
+        progress.append(f"  ✓ LLM batch {batch_num}/{total_batches} ({len(merged_rows)} marcas)")
     step_end(logger, "N3c_LLM_UNIFIED", target_city, t_llm, brands=len(all_structured))
     progress.append(f"✅ Extracção única: {len(all_structured)} marcas")
 

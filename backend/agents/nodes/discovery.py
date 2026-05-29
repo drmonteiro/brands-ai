@@ -7,7 +7,7 @@ calls Exa API, and returns deduplicated raw results with content.
 import asyncio
 import logging
 import os
-from typing import List, Dict, Any, Union, Tuple
+from typing import List, Dict, Any, Union, Tuple, Optional
 from urllib.parse import urlparse
 
 from exa_py import Exa
@@ -20,6 +20,7 @@ logger = logging.getLogger("node.discovery")
 EXA_NUM_RESULTS = int(os.environ.get("EXA_NUM_RESULTS", "20"))
 EXA_MAX_RETRIES = int(os.environ.get("EXA_MAX_RETRIES", "3"))
 EXA_RETRY_INITIAL_SEC = float(os.environ.get("EXA_RETRY_INITIAL_SEC", "1.5"))
+EXA_QUERY_MAX_CONCURRENT = max(5, min(8, int(os.environ.get("EXA_QUERY_MAX_CONCURRENT", "6"))))
 
 EXCLUDE_DOMAINS = [
     "amazon.com", "ebay.com", "walmart.com", "target.com",
@@ -143,6 +144,45 @@ async def _exa_search_with_retries(exa: Exa, query: str, exa_kwargs: Dict[str, A
     raise last
 
 
+def _parse_exa_response(response: Any) -> List[Dict]:
+    """Turn Exa search response into raw result dicts."""
+    items: List[Dict] = []
+    for result in response.results:
+        url = result.url or ""
+        if not url:
+            continue
+        text_content = result.text if hasattr(result, "text") and result.text else ""
+        highlights = (
+            " ".join(result.highlights)
+            if hasattr(result, "highlights") and result.highlights
+            else ""
+        )
+        items.append({
+            "url": url,
+            "title": result.title or "",
+            "text": text_content,
+            "highlights": highlights,
+        })
+    return items
+
+
+async def _exa_search_one_query(
+    exa: Exa,
+    query_index: int,
+    query: str,
+    exa_kwargs: Dict[str, Any],
+    sem: asyncio.Semaphore,
+) -> Tuple[int, List[Dict], int, Optional[BaseException]]:
+    """Run one discovery Exa query (retry/backoff inside). Returns (index, items, result_count, error)."""
+    async with sem:
+        try:
+            response = await _exa_search_with_retries(exa, query, exa_kwargs)
+            items = _parse_exa_response(response)
+            return query_index, items, len(response.results), None
+        except BaseException as e:
+            return query_index, [], 0, e
+
+
 def _deduplicate_by_domain(results: List[Dict]) -> List[Dict]:
     seen = set()
     unique = []
@@ -192,45 +232,41 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
 
     progress.append(f"✅ {len(queries)} queries geradas")
 
-    # 4. Call Exa for each query
+    # 4. Call Exa for all queries in parallel (capped concurrency)
     exa = Exa(api_key=os.environ.get("EXA_API_KEY"))
     all_raw: List[Dict] = []
+    exa_kwargs = {
+        "num_results": EXA_NUM_RESULTS,
+        "type": "auto",
+        "exclude_domains": EXCLUDE_DOMAINS,
+        "contents": {"text": {"maxCharacters": 10000}, "highlights": True},
+    }
 
-    t_exa = step_begin(logger, "N1b_EXA_SEARCH", target_city,
-                        f"Executar {len(queries)} queries no Exa.")
+    t_exa = step_begin(
+        logger, "N1b_EXA_SEARCH", target_city,
+        f"Executar {len(queries)} queries no Exa (max {EXA_QUERY_MAX_CONCURRENT} paralelas).",
+    )
+    sem = asyncio.Semaphore(EXA_QUERY_MAX_CONCURRENT)
+    query_outcomes = await asyncio.gather(
+        *[
+            _exa_search_one_query(exa, i, query, exa_kwargs, sem)
+            for i, query in enumerate(queries)
+        ]
+    )
+    query_outcomes.sort(key=lambda x: x[0])
 
-    for i, query in enumerate(queries):
-        try:
-            exa_kwargs = {
-                "num_results": EXA_NUM_RESULTS,
-                "type": "auto",
-                "exclude_domains": EXCLUDE_DOMAINS,
-                "contents": {"text": {"maxCharacters": 10000}, "highlights": True},
-            }
-            response = await _exa_search_with_retries(exa, query, exa_kwargs)
-
-            for result in response.results:
-                url = result.url or ""
-                if not url:
-                    continue
-                text_content = result.text if hasattr(result, "text") and result.text else ""
-                highlights = " ".join(result.highlights) if hasattr(result, "highlights") and result.highlights else ""
-                all_raw.append({
-                    "url": url,
-                    "title": result.title or "",
-                    "text": text_content,
-                    "highlights": highlights,
-                })
-
-            logger.info("  Exa Q%d: %d results", i + 1, len(response.results))
-            progress.append(f"  ✓ Q{i+1}: {len(response.results)} resultados")
-
-        except Exception as e:
-            logger.error("  Exa Q%d failed: %s", i + 1, e)
-            progress.append(f"  ⚠️ Q{i+1} falhou: {e}")
+    for query_index, items, result_count, err in query_outcomes:
+        qn = query_index + 1
+        if err is not None:
+            logger.error("  Exa Q%d failed: %s", qn, err)
+            progress.append(f"  ⚠️ Q{qn} falhou: {err}")
+        else:
+            all_raw.extend(items)
+            logger.info("  Exa Q%d: %d results", qn, result_count)
+            progress.append(f"  ✓ Q{qn}: {result_count} resultados")
 
     step_end(logger, "N1b_EXA_SEARCH", target_city, t_exa,
-             raw_results=len(all_raw))
+             raw_results=len(all_raw), parallel_cap=EXA_QUERY_MAX_CONCURRENT)
 
     # 5. Deduplicate by domain
     unique_results = _deduplicate_by_domain(all_raw)

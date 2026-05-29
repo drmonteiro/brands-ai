@@ -15,10 +15,10 @@ async def test_similarity_failure_flags_degraded_run(monkeypatch):
         {"name": "Orion Sartorial", "website_url": "https://orion-sartorial.example", "avg_suit_price_eur": 600, "store_count": 1, "origin_country": "UK"},
     ]
 
-    async def _fail_similarity(_text, n_results=3):
+    async def _fail_similarity_batch(_texts, n_results=3):
         raise RuntimeError("embedding dimension mismatch")
 
-    monkeypatch.setattr(persistence_mod, "find_similar_clients", _fail_similarity)
+    monkeypatch.setattr(persistence_mod, "find_similar_clients_batch", _fail_similarity_batch)
     monkeypatch.setattr(persistence_mod, "_llm_fit_assessment", AsyncMock(
         return_value=[{"url": b["website_url"], "fit_score": 7, "fit_reason": "ok"} for b in brands]
     ))

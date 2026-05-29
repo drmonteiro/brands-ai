@@ -105,8 +105,9 @@ async def _mock_enrich_with_places(brand_name, city, country="", website_url="")
     }
 
 
-async def _mock_find_similar(text, n_results=3):
-    return [{"similarity": 78.0, "name": "Hawes & Curtis", "id": "c0", "country": "UK", "metadata": {}, "profile": ""}]
+async def _mock_find_similar_batch(texts, n_results=3):
+    row = [{"similarity": 78.0, "name": "Hawes & Curtis", "id": "c0", "country": "UK", "metadata": {}, "profile": ""}]
+    return [row for _ in texts]
 
 
 async def _mock_llm_fit(brands, target_city):
@@ -157,7 +158,7 @@ async def test_simplified_pipeline_e2e(monkeypatch):
     monkeypatch.setattr("agents.nodes.enrich.resolve_headquarters_via_llm_batch", _mock_hq_batch_llm)
     monkeypatch.setattr("agents.nodes.enrich.enrich_with_places", _mock_enrich_with_places)
 
-    monkeypatch.setattr("agents.nodes.persistence.find_similar_clients", _mock_find_similar)
+    monkeypatch.setattr("agents.nodes.persistence.find_similar_clients_batch", _mock_find_similar_batch)
     monkeypatch.setattr("agents.nodes.persistence._llm_fit_assessment", _mock_llm_fit)
     monkeypatch.setattr("agents.nodes.persistence.save_prospect", _track_save)
     monkeypatch.setattr(

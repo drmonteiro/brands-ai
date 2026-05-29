@@ -4,12 +4,14 @@ Compares enriched brands against Lança's client base using pgvector similarity
 and LLM fit assessment. Calculates final scores and saves top 20 to PostgreSQL.
 """
 
+import asyncio
 import json
 import logging
+import os
 from typing import List, Dict, Any, Union
 
 from models import ProspectorState, BrandLead
-from services.vector_db import find_similar_clients
+from services.vector_db import find_similar_clients_batch
 from services.database import save_prospect, get_existing_urls_for_city
 from services.scoring import calculate_city_presence_score
 from services.currency import eur_to_usd, get_eur_usd_rate
@@ -27,6 +29,9 @@ logger = logging.getLogger("node.persistence")
 MAX_OUTPUT_BRANDS = 20
 # Fraction of brands with embedding failures that marks the whole run as degraded
 SIMILARITY_DEGRADED_FAILURE_RATIO = 0.25
+FIT_BATCH_SIZE = 8
+# Max concurrent LLM fit batches (N4b); 0 = all batches at once
+FIT_LLM_BATCH_CONCURRENT = int(os.environ.get("FIT_LLM_BATCH_CONCURRENT", "0"))
 
 # Country name → ISO code for scoring
 COUNTRY_TO_CODE = {
@@ -252,43 +257,64 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
 
     similarity_scores = {}
     similar_client_data = {}
-
     similarity_failure_count = 0
 
-    for brand in enriched_brands:
-        url = brand.get("website_url", "")
-        profile_text = _build_profile_text(brand)
-        try:
-            similar = await find_similar_clients(profile_text, n_results=3)
-            if similar:
-                top_sim = min(similar[0]["similarity"], 100)
-                similarity_scores[url] = top_sim
-                similar_client_data[url] = similar
-                brand["similarity_failed"] = False
-            else:
-                similarity_scores[url] = 50.0
+    profile_texts = [_build_profile_text(b) for b in enriched_brands]
+    urls = [b.get("website_url", "") for b in enriched_brands]
+
+    try:
+        similar_lists = await find_similar_clients_batch(profile_texts, n_results=3)
+        if len(similar_lists) != len(enriched_brands):
+            raise ValueError(
+                f"Similarity batch length mismatch: {len(similar_lists)} vs {len(enriched_brands)}"
+            )
+        for brand, url, similar in zip(enriched_brands, urls, similar_lists):
+            try:
+                if similar:
+                    top_sim = min(similar[0]["similarity"], 100)
+                    similarity_scores[url] = top_sim
+                    similar_client_data[url] = similar
+                    brand["similarity_failed"] = False
+                else:
+                    similarity_scores[url] = 50.0
+                    similar_client_data[url] = []
+                    brand["similarity_failed"] = False
+                    logger.warning(
+                        "SIMILARITY_EMPTY brand=%s url=%s (no similar clients returned)",
+                        brand.get("name", "?"),
+                        url,
+                    )
+            except Exception as e:
+                brand["similarity_failed"] = True
+                similarity_failure_count += 1
+                similarity_scores[url] = 0.0
                 similar_client_data[url] = []
-                brand["similarity_failed"] = False
-                logger.warning(
-                    "SIMILARITY_EMPTY brand=%s url=%s (no similar clients returned)",
+                logger.error(
+                    "SIMILARITY_FAILED brand=%s url=%s: %s",
                     brand.get("name", "?"),
                     url,
+                    e,
+                    exc_info=True,
                 )
-        except Exception as e:
+                progress.append(
+                    f"⚠️ Similaridade falhou: {brand.get('name', '?')} ({type(e).__name__})"
+                )
+    except Exception as e:
+        logger.error(
+            "SIMILARITY_BATCH_FAILED city=%s: %s — marking all brands failed",
+            target_city,
+            e,
+            exc_info=True,
+        )
+        for brand, url in zip(enriched_brands, urls):
             brand["similarity_failed"] = True
             similarity_failure_count += 1
             similarity_scores[url] = 0.0
             similar_client_data[url] = []
-            logger.error(
-                "SIMILARITY_FAILED brand=%s url=%s: %s",
-                brand.get("name", "?"),
-                url,
-                e,
-                exc_info=True,
-            )
             progress.append(
                 f"⚠️ Similaridade falhou: {brand.get('name', '?')} ({type(e).__name__})"
             )
+        progress.append(f"⚠️ Similaridade em batch falhou: {type(e).__name__}")
 
     total_for_similarity = len(enriched_brands)
     similarity_degraded = (
@@ -328,21 +354,40 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
                         "Avaliação de fit via LLM.")
     progress.append("🤖 LLM a avaliar fit de cada marca...")
 
-    # Process in batches of 8
-    fit_scores = {}
-    FIT_BATCH = 8
-    for batch_start in range(0, len(enriched_brands), FIT_BATCH):
-        batch = enriched_brands[batch_start:batch_start + FIT_BATCH]
-        fit_results = await _llm_fit_assessment(batch, target_city)
+    fit_scores: Dict[str, Dict] = {}
+    total_fit_batches = (len(enriched_brands) + FIT_BATCH_SIZE - 1) // FIT_BATCH_SIZE
+    fit_sem = (
+        asyncio.Semaphore(FIT_LLM_BATCH_CONCURRENT)
+        if FIT_LLM_BATCH_CONCURRENT > 0
+        else None
+    )
+
+    async def _run_fit_batch(batch_start: int) -> tuple:
+        if fit_sem:
+            async with fit_sem:
+                return await _run_fit_batch_inner(batch_start)
+        return await _run_fit_batch_inner(batch_start)
+
+    async def _run_fit_batch_inner(batch_start: int) -> tuple:
+        batch = enriched_brands[batch_start:batch_start + FIT_BATCH_SIZE]
+        batch_num = (batch_start // FIT_BATCH_SIZE) + 1
+        results = await _llm_fit_assessment(batch, target_city)
+        return batch_start, batch_num, results
+
+    fit_batch_starts = list(range(0, len(enriched_brands), FIT_BATCH_SIZE))
+    fit_outcomes = await asyncio.gather(*[_run_fit_batch(bs) for bs in fit_batch_starts])
+    fit_outcomes.sort(key=lambda x: x[0])
+    for _bs, batch_num, fit_results in fit_outcomes:
         for result in fit_results:
             url = result.get("url", "")
             fit_scores[url] = {
                 "score": result.get("fit_score", 5),
                 "reason": result.get("fit_reason", ""),
             }
+        logger.info("LLM fit batch %d/%d done", batch_num, total_fit_batches)
 
     step_end(logger, "N4b_LLM_FIT", target_city, t_fit,
-             brands_assessed=len(fit_scores))
+             brands_assessed=len(fit_scores), parallel_batches=total_fit_batches)
     progress.append(f"✅ LLM fit: {len(fit_scores)} marcas avaliadas")
 
     # --- Phase 3: Final score calculation ---
