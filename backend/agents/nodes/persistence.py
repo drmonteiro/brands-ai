@@ -13,7 +13,10 @@ from typing import List, Dict, Any, Union
 from models import ProspectorState, BrandLead
 from services.vector_db import find_similar_clients_batch
 from services.database import save_prospect, get_existing_urls_for_city
-from services.scoring import calculate_city_presence_score
+from services.runtime_scoring import (
+    calculate_city_presence_score,
+    compute_runtime_final_score,
+)
 from services.currency import eur_to_usd, get_eur_usd_rate
 from services.location_enrichment import (
     should_exclude_brand_for_location,
@@ -411,38 +414,11 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
         except (TypeError, ValueError):
             stores = 0
 
-        # Price alignment (0-100): flat max in €500-€1700 range
-        if price == 0:
-            price_score = 50.0  # neutral for unknown
-        elif 500 <= price <= 1700:
-            price_score = 100.0
-        elif 375 <= price < 500:
-            price_score = 30.0 + 70.0 * (price - 375) / 125
-        elif 1700 < price <= 2500:
-            price_score = 100.0 - 70.0 * (price - 1700) / 800
-        else:
-            price_score = 10.0
-
-        # Size alignment (0-100): flat max for 1-20 stores
-        if stores == 0:
-            size_score = 50.0  # neutral for unknown
-        elif 1 <= stores <= 20:
-            size_score = 100.0
-        elif 20 < stores <= 30:
-            size_score = 100.0 - 70.0 * (stores - 20) / 10
-        else:
-            size_score = 10.0
-
-        # Final weighted score (0-100)
-        # 40% similarity + 30% LLM fit + 15% price + 15% size
-        final_score = (
-            0.40 * sim_score +
-            0.30 * (llm_fit / 10.0) * 100 +
-            0.15 * price_score +
-            0.15 * size_score
+        final_score, price_score, size_score, _fit_pct = compute_runtime_final_score(
+            sim_score, llm_fit, price, stores
         )
 
-        brand["final_score"] = round(final_score, 2)
+        brand["final_score"] = final_score
         brand["similarity_score"] = round(sim_score, 2)
         brand["llm_fit_score"] = llm_fit
         brand["llm_fit_reason"] = fit_data["reason"]

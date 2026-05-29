@@ -14,7 +14,7 @@ import os
 import json
 import logging
 from typing import List, Dict, Optional, Tuple
-from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
+from langchain_openai import AzureOpenAIEmbeddings
 
 from config import Config
 from data.lanca_clients import (
@@ -263,131 +263,6 @@ async def find_similar_clients(
 
 
 # ============================================================================
-# SIMILARITY EXPLANATION GENERATION
-# ============================================================================
-
-async def generate_similarity_explanation(
-    prospect: Dict,
-    similar_client: Dict,
-    similarity_score: float
-) -> str:
-    """
-    Generate a human-readable explanation of why a prospect is similar to a Lança client.
-    Uses LLM to compare characteristics and explain the match.
-    """
-    llm = AzureChatOpenAI(
-        azure_endpoint=Config.AZURE_OPENAI_ENDPOINT,
-        api_key=Config.AZURE_OPENAI_API_KEY,
-        api_version=Config.AZURE_OPENAI_API_VERSION,
-        deployment_name=Config.AZURE_OPENAI_DEPLOYMENT,
-        temperature=0.3,
-    )
-    
-    # Extract key characteristics
-    prospect_info = {
-        "name": prospect.get("name", "Unknown"),
-        "country": prospect.get("country", "Unknown"),
-        "store_count": prospect.get("store_count", 0),
-        "price_eur": prospect.get("avg_suit_price_eur", 0),
-        "wool": prospect.get("wool_percentage", "unknown"),
-        "mtm": (
-            "unknown"
-            if prospect.get("made_to_measure") is None
-            else prospect.get("made_to_measure")
-        ),
-        "style": prospect.get("brand_style", "unknown"),
-        "business": prospect.get("business_model", "unknown"),
-    }
-    
-    client_info = similar_client.get("metadata", {})
-    client_profile = similar_client.get("profile", "")
-    
-    prompt = f"""You are analyzing why a prospect brand is similar to an existing Confeções Lança client.
-
-PROSPECT:
-- Name: {prospect_info['name']}
-- Country: {prospect_info['country']}
-- Stores: {prospect_info['store_count']}
-- Price: €{prospect_info['price_eur']}
-- Wool: {prospect_info['wool']}
-- Made-to-Measure: {prospect_info['mtm']}
-- Style: {prospect_info['style']}
-- Business Model: {prospect_info['business']}
-
-LANÇA CLIENT (Most Similar - {similarity_score:.1f}% match):
-- Name: {client_info.get('name', 'Unknown')}
-- Country: {client_info.get('country', 'Unknown')}
-- Stores: {client_info.get('store_count', 0)}
-- Wool: {client_info.get('wool_percentage', 'unknown')}
-- Made-to-Measure: {client_info.get('made_to_measure', 'unknown')}
-- Style: {client_info.get('brand_style', 'unknown')}
-- Business Model: {client_info.get('business_model', 'unknown')}
-- Profile: {client_profile}
-
-TASK:
-Write a brief explanation (2-3 sentences) explaining why these brands are similar.
-Focus on:
-- Business size and structure (store count)
-- Quality positioning (wool percentage, bespoke services)
-- Brand positioning and style
-- Business model alignment
-
-Be concise and specific. Write in English.
-
-Example format:
-"This prospect is similar to [Client Name] because both are small boutique retailers (X stores) focusing on premium/luxury menswear with 100% wool suits and bespoke services. They share a similar brand positioning and target the same market segment."
-
-Explanation:"""
-
-    try:
-        response = await llm.ainvoke(prompt)
-        explanation = response.content if hasattr(response, 'content') else str(response)
-        return explanation.strip()
-    except Exception as e:
-        print(f"[VECTOR-DB] Error generating similarity explanation: {e}")
-        # Fallback explanation based on key similarities
-        similarities = []
-        
-        prospect_stores = prospect_info.get("store_count", 0)
-        client_stores = client_info.get("store_count", 0)
-        if abs(prospect_stores - client_stores) <= 5:
-            similarities.append(f"similar boutique size ({prospect_stores} vs {client_stores} stores)")
-        
-        if prospect_info.get("wool") == client_info.get("wool_percentage"):
-            similarities.append("100% wool suits")
-        
-        if str(prospect_info.get("mtm")).lower() == str(client_info.get("made_to_measure", "")).lower():
-            similarities.append("made-to-measure services")
-        
-        if prospect_info.get("style") == client_info.get("brand_style"):
-            similarities.append(f"{prospect_info.get('style')} positioning")
-        
-        if similarities:
-            return f"Similar to {client_info.get('name', 'client')} because both have: {', '.join(similarities)}."
-        else:
-            return f"Similar to {client_info.get('name', 'client')} ({similarity_score:.1f}% match) based on overall brand profile and positioning."
-
-
-# ============================================================================
-# SCORING — delegated to services.scoring (extracted for modularity)
-# Re-export for backward compatibility with existing imports.
-# ============================================================================
-from services.scoring import (  # noqa: F401
-    calculate_prospect_score,
-    passes_hard_filters,
-    calculate_price_score,
-    calculate_size_score,
-    calculate_wool_score,
-    calculate_mtm_score,
-    get_market_strength_score,
-    HARD_FILTER_MIN_PRICE_EUR,
-    HARD_FILTER_MAX_STORES,
-    IDEAL_PRICE_EUR,
-    IDEAL_MAX_STORES,
-)
-
-
-# ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
 
@@ -405,16 +280,18 @@ def get_recommendation(score: float) -> str:
 
 async def match_prospect_to_clients(prospect: Dict) -> Dict:
     """
-    Match a prospect against Lança's client database.
-    Returns match score and similar clients.
+    Debug helper: embedding similarity to Lança clients (no rubric/runtime score).
+    Production ranking uses persistence.score_and_save_node + runtime_scoring.
     """
-    scores, similar_clients = await calculate_prospect_score(prospect)
-    
+    prospect_description = generate_client_profile_text(prospect)
+    similar_clients = await find_similar_clients(prospect_description, n_results=5)
+    top_sim = similar_clients[0]["similarity"] if similar_clients else 0.0
+
     return {
         "prospect": prospect.get("name", "Unknown"),
-        "scores": scores,
         "similar_clients": similar_clients[:5],
-        "recommendation": get_recommendation(scores["final_score"]),
+        "top_similarity_pct": top_sim,
+        "recommendation": get_recommendation(top_sim),
     }
 
 
@@ -462,8 +339,8 @@ if __name__ == "__main__":
         result = await populate_clients_database()
         print(f"   Result: {result['status']} ({result['count']} clients)")
         
-        # 2. Test prospect scoring
-        print("\n2. Testing prospect scoring...")
+        # 2. Test similarity match
+        print("\n2. Testing similarity match...")
         test_prospect = {
             "name": "Test Boutique Milano",
             "website_url": "https://testboutique.it",
@@ -478,15 +355,13 @@ if __name__ == "__main__":
             "business_model": "Retail",
             "description": "Italian boutique tailor specializing in bespoke suits",
         }
-        
-        scores, similar = await calculate_prospect_score(test_prospect)
+
+        match = await match_prospect_to_clients(test_prospect)
         print(f"   Prospect: {test_prospect['name']}")
-        print(f"   Final Score: {scores['final_score']}")
-        print(f"   Size Score: {scores['breakdown']['size_score']}")
-        print(f"   Quality Score: {scores['breakdown']['quality_score']}")
-        print(f"   Similarity Score: {scores['breakdown']['similarity_score']}")
-        print(f"   Most Similar: {similar[0]['name'] if similar else 'N/A'}")
-        print(f"   Recommendation: {get_recommendation(scores['final_score'])}")
+        print(f"   Top similarity: {match['top_similarity_pct']:.1f}%")
+        sim = match["similar_clients"]
+        print(f"   Most Similar: {sim[0]['name'] if sim else 'N/A'}")
+        print(f"   Recommendation: {match['recommendation']}")
         
         # 3. Check collection count
         print("\n3. Checking collection...")

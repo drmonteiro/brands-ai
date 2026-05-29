@@ -1,9 +1,13 @@
 """
-Scoring Service for Confeções Lança Prospector
+LEGACY rubric scoring (additive 0-100 model aligned with rubric.yaml).
 
-Implements the Lança Rubric scoring system. Extracted from vector_db.py.
+NOT used by the production pipeline. Runtime ranking lives in
+``services/runtime_scoring.py`` via ``agents/nodes/persistence.py`` (N4).
 
-CRITICAL PRINCIPLE: No hidden preferences inside valid ranges.
+Offline evaluation: ``evaluation/rubric_evaluator.py`` + ``rubric.yaml``.
+``calculate_prospect_score()`` remains for manual/offline tooling only.
+
+CRITICAL PRINCIPLE (rubric): No hidden preferences inside valid ranges.
   - €500-€2000 suit price → flat maximum (all equally good)
   - 1-20 stores → flat maximum (all equally good)
   - The only hierarchical criterion is city_presence (HQ > store > showroom)
@@ -198,7 +202,84 @@ def get_market_strength_score(country_code: str) -> float:
 
 
 # ============================================================================
-# MAIN SCORING FUNCTION
+# SIMILARITY EXPLANATION (offline / legacy rubric only)
+# ============================================================================
+
+async def generate_similarity_explanation(
+    prospect: Dict,
+    similar_client: Dict,
+    similarity_score: float,
+) -> str:
+    """LLM explanation for rubric tooling — not used by pipeline N4."""
+    from config import Config
+    from langchain_openai import AzureChatOpenAI
+
+    llm = AzureChatOpenAI(
+        azure_endpoint=Config.AZURE_OPENAI_ENDPOINT,
+        api_key=Config.AZURE_OPENAI_API_KEY,
+        api_version=Config.AZURE_OPENAI_API_VERSION,
+        deployment_name=Config.AZURE_OPENAI_DEPLOYMENT,
+        temperature=0.3,
+    )
+
+    prospect_info = {
+        "name": prospect.get("name", "Unknown"),
+        "country": prospect.get("country", "Unknown"),
+        "store_count": prospect.get("store_count", 0),
+        "price_eur": prospect.get("avg_suit_price_eur", 0),
+        "wool": prospect.get("wool_percentage", "unknown"),
+        "mtm": (
+            "unknown"
+            if prospect.get("made_to_measure") is None
+            else prospect.get("made_to_measure")
+        ),
+        "style": prospect.get("brand_style", "unknown"),
+        "business": prospect.get("business_model", "unknown"),
+    }
+
+    client_info = similar_client.get("metadata", {})
+    client_profile = similar_client.get("profile", "")
+
+    prompt = f"""You are analyzing why a prospect brand is similar to an existing Confeções Lança client.
+
+PROSPECT:
+- Name: {prospect_info['name']}
+- Country: {prospect_info['country']}
+- Stores: {prospect_info['store_count']}
+- Price: €{prospect_info['price_eur']}
+- Wool: {prospect_info['wool']}
+- Made-to-Measure: {prospect_info['mtm']}
+- Style: {prospect_info['style']}
+- Business Model: {prospect_info['business']}
+
+LANÇA CLIENT (Most Similar - {similarity_score:.1f}% match):
+- Name: {client_info.get('name', 'Unknown')}
+- Country: {client_info.get('country', 'Unknown')}
+- Stores: {client_info.get('store_count', 0)}
+- Wool: {client_info.get('wool_percentage', 'unknown')}
+- Made-to-Measure: {client_info.get('made_to_measure', 'unknown')}
+- Style: {client_info.get('brand_style', 'unknown')}
+- Business Model: {client_info.get('business_model', 'unknown')}
+- Profile: {client_profile}
+
+Write a brief explanation (2-3 sentences) in English of why these brands are similar.
+
+Explanation:"""
+
+    try:
+        response = await llm.ainvoke(prompt)
+        explanation = response.content if hasattr(response, "content") else str(response)
+        return explanation.strip()
+    except Exception as e:
+        logger.warning("Similarity explanation LLM failed: %s", e)
+        return (
+            f"Similar to {client_info.get('name', 'client')} "
+            f"({similarity_score:.1f}% match) based on brand profile and positioning."
+        )
+
+
+# ============================================================================
+# MAIN SCORING FUNCTION (legacy rubric — offline only)
 # ============================================================================
 
 async def calculate_prospect_score(prospect: Dict) -> Tuple[Dict, List[Dict]]:
@@ -208,11 +289,7 @@ async def calculate_prospect_score(prospect: Dict) -> Tuple[Dict, List[Dict]]:
     Returns:
         (scores_dict, similar_clients_list)
     """
-    from services.vector_db import (
-        find_similar_clients,
-        generate_client_profile_text,
-        generate_similarity_explanation,
-    )
+    from services.vector_db import find_similar_clients, generate_client_profile_text
 
     passes, rejection_reason = passes_hard_filters(prospect)
 
