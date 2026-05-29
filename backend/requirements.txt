@@ -9,9 +9,6 @@ langchain-openai
 langchain-community
 langgraph
 
-# Tavily Search
-tavily-python
-
 # Email
 resend
 
@@ -31,9 +28,7 @@ sqlalchemy[asyncio]
 pgvector
 langgraph-checkpoint-postgres
 
-# Extraction Engines
-crawl4ai>=0.8.5
-firecrawl-py
+# Search / enrichment
 exa-py
 gunicorn
 

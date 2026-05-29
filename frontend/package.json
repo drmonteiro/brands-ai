@@ -12,7 +12,6 @@
     "@langchain/core": "^0.3.0",
     "@langchain/langgraph": "^0.2.0",
     "@langchain/openai": "^0.2.0",
-    "@tavily/core": "^0.7.1",
     "ai": "^4.0.0",
     "better-sqlite3": "^11.0.0",
     "class-variance-authority": "^0.7.0",

@@ -57,40 +57,39 @@ This application automates the discovery and qualification of boutique US menswe
 
 **Backend:**
 - **Framework:** FastAPI (Python 3.12+)
-- **AI Orchestration:** LangChain / LangGraph
-- **Search API:** Tavily (optimized for LLM workflows)
-- **Email:** Resend API
-- **LLM:** Azure OpenAI GPT-4o
+- **AI Orchestration:** LangGraph (4-node pipeline)
+- **Search:** [Exa](https://exa.ai) (discovery + supplemental enrich)
+- **Embeddings / LLM:** Azure OpenAI (`text-embedding-3-small`, GPT-5.1 / GPT-5-mini)
+- **Location:** Google Places (optional)
+- **Database:** PostgreSQL + pgvector
+- **Email:** Resend API (optional outreach)
 
-### Agentic Workflow
+### Prospecting pipeline (runtime)
 
-The system implements a sophisticated multi-node workflow:
+Four LangGraph nodes — no HITL gate in the search path:
 
 ```
 ┌─────────────┐
-│ Initialize  │ ← Fetch exchange rates, set parameters
+│  Discovery  │  N1 — Exa queries (boutiques, tailor shops, small menswear)
 └──────┬──────┘
        ↓
 ┌─────────────┐
-│  Discovery  │ ← Search for boutique brands (Tavily)
+│   Filter    │  N2 — LLM: men's suits / tailoring (fast model)
 └──────┬──────┘
        ↓
 ┌─────────────┐
-│ Validation  │ ← Verify store count, pricing, origin
+│   Enrich    │  N3 — Exa + structured LLM + Places / brand_facts cache
 └──────┬──────┘
        ↓
 ┌─────────────┐
-│   Filter    │ ← Rank and select top 10 brands
-└──────┬──────┘
-       ↓
-┌─────────────┐
-│  Approval   │ ← **HUMAN-IN-THE-LOOP** checkpoint
-└──────┬──────┘
-       ↓
-┌─────────────┐
-│ Send Email  │ ← Dispatch partnership proposals
+│ Score+Save  │  N4 — embeddings similarity + fit + runtime scoring → DB
 └─────────────┘
 ```
+
+Concurrency, batch sizes, and env vars: **`backend/docs/PIPELINE_CONFIG.md`**.
+
+Runtime ranking weights: **`backend/services/runtime_scoring.py`**.  
+Offline rubric evaluation: **`rubric.yaml`** + **`evaluation/rubric_evaluator.py`** (not used in the live pipeline).
 
 ## 🚀 Getting Started
 
@@ -98,9 +97,10 @@ The system implements a sophisticated multi-node workflow:
 
 - **Node.js 18+** and npm
 - **Python 3.12+** and pip
-- Azure OpenAI API key and deployment (for LLM reasoning)
-- Tavily API key (for web searching)
-- Resend API key (for email sending)
+- Azure OpenAI API key and deployments (LLM + embeddings)
+- Exa API key (web search for discovery/enrich)
+- PostgreSQL with pgvector (local Docker or hosted)
+- Resend API key (optional, for email outreach)
 
 ### Installation
 
@@ -133,24 +133,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Create a `.env` file in the `backend` directory:
-
-```env
-# Azure OpenAI Configuration
-AZURE_OPENAI_ENDPOINT=https://occmodels.openai.azure.com/
-AZURE_OPENAI_API_KEY=your_azure_key_here
-AZURE_OPENAI_DEPLOYMENT=gpt-4o
-AZURE_OPENAI_API_VERSION=2024-08-01-preview
-
-# Tavily API Key for web searching
-TAVILY_API_KEY=tvly-...
-
-# Resend API Key for email sending
-RESEND_API_KEY=re_...
-
-# Email configuration
-FROM_EMAIL=comercial@confecos-lanca.pt
-```
+Copy `backend/.env.example` to `backend/.env` and set at least `AZURE_OPENAI_*`, `EXA_API_KEY`, and Postgres URLs. See `backend/docs/PIPELINE_CONFIG.md` for tuning knobs.
 
 ### Running the Application
 
