@@ -155,6 +155,8 @@ async def test_simplified_pipeline_e2e(monkeypatch):
 
     monkeypatch.setattr("agents.nodes.filter._filter_batch", _mock_filter_batch)
 
+    monkeypatch.setattr("agents.nodes.enrich.get_brand_facts_batch", AsyncMock(return_value={}))
+    monkeypatch.setattr("agents.nodes.enrich.upsert_brand_facts_from_brands", AsyncMock(return_value=0))
     monkeypatch.setattr("agents.nodes.enrich._batch_fetch_exa_supplements", _mock_batch_fetch_exa_supplements)
     monkeypatch.setattr("agents.nodes.enrich._extract_structured_batch", _mock_extract_structured_batch)
     monkeypatch.setattr("agents.nodes.enrich.resolve_headquarters_via_llm_batch", _mock_hq_batch_llm)

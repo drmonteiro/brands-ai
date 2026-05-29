@@ -19,6 +19,14 @@ from exa_py import Exa
 
 from models import ProspectorState
 from services.currency import extraction_fx_rules_text
+from services.brand_facts import (
+    apply_brand_facts_to_brand,
+    get_brand_facts_batch,
+    get_brand_facts_ttl_days,
+    is_brand_facts_fresh,
+    upsert_brand_facts_from_brands,
+)
+from services.database import extract_domain
 from services.discovery_prefill import apply_prefill, prefill_from_discovery
 from services.google_places import enrich_with_places
 from services.location_enrichment import (
@@ -403,34 +411,34 @@ def _prepare_working_brands(filtered: List[Dict]) -> List[Dict]:
     return rows
 
 
-# ============================================================================
-# MAIN NODE
-# ============================================================================
+async def _enrich_cached_brands_local_only(
+    brands: List[Dict],
+    city_ctx: CityContext,
+    target_city: str,
+    progress: List[str],
+) -> tuple:
+    """Reuse brand_facts; only Google Places + city validation."""
+    if not brands:
+        return [], city_ctx
 
-async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
-    target_city = state.get("target_city") if isinstance(state, dict) else getattr(state, "target_city", "")
-    target_country = state.get("target_country") if isinstance(state, dict) else getattr(state, "target_country", "")
-    filtered_brands = state.get("filtered_brands") if isinstance(state, dict) else getattr(state, "filtered_brands", [])
+    hq_cities = [b["headquarters_city"] for b in brands if b.get("headquarters_city")]
+    if hq_cities:
+        city_ctx = await batch_check_hq_cities_against_target(city_ctx, hq_cities)
 
-    t_node = step_begin(
-        logger, "N3_ENRICH", target_city,
-        f"Enriquecer {len(filtered_brands)} marcas (prefill → Exa paralelo → LLM único → HQ batch).",
-    )
-    progress = [f"📊 Enriquecendo {len(filtered_brands)} marcas..."]
+    progress.append(f"📦 Presença local (brand_facts): {len(brands)} marcas")
+    brands = await _enrich_with_google_places(brands, city_ctx)
+    brands = _merge_and_validate_locations(brands, city_ctx)
+    return brands, city_ctx
 
-    if not filtered_brands:
-        step_end(logger, "N3_ENRICH", target_city, t_node, "sem marcas")
-        return {"enriched_brands": [], "progress": progress + ["⚠️ Nenhuma marca para enriquecer"]}
 
-    city_ctx = await resolve_target_city_context(target_city)
-    if not target_country and city_ctx.country:
-        target_country = city_ctx.country
-
-    working = _prepare_working_brands(filtered_brands)
-
-    # N3a: discovery prefill (no LLM)
-    t_prefill = step_begin(logger, "N3a_DISCOVERY_PREFILL", target_city,
-                           f"Prefill regex/heuristics para {len(working)} marcas.")
+async def _run_full_enrich_pipeline(
+    working: List[Dict],
+    target_city: str,
+    target_country: str,
+    city_ctx: CityContext,
+    progress: List[str],
+) -> tuple:
+    """Full enrich path (prefill → Exa → LLM → HQ batch → Places → validate)."""
     prefilled = 0
     for brand in working:
         pre = prefill_from_discovery(brand)
@@ -443,28 +451,18 @@ async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
                 brand["_site_store_count"] = pre.get("site_store_count")
                 brand["_site_store_confidence"] = "verified"
             prefilled += 1
-    step_end(logger, "N3a_DISCOVERY_PREFILL", target_city, t_prefill, brands_with_prefill=prefilled)
     progress.append(f"✅ Prefill discovery: {prefilled}/{len(working)} marcas com dados iniciais")
 
-    # N3b: parallel Exa only for missing fields
     needs_price = sum(1 for b in working if _needs_exa_price(b))
     needs_about = sum(1 for b in working if _needs_exa_about(b))
     needs_stores = sum(1 for b in working if _needs_exa_stores(b))
-    t_exa = step_begin(
-        logger, "N3b_EXA_SUPPLEMENT", target_city,
-        f"Exa paralelo: price={needs_price} about={needs_about} stores={needs_stores}.",
-    )
     progress.append(
         f"🔎 Exa suplementar: preços={needs_price}, sede={needs_about}, lojas={needs_stores}"
     )
     exa_contents = await _batch_fetch_exa_supplements(working)
     fetched = sum(1 for e in exa_contents if any(e.values()))
-    step_end(logger, "N3b_EXA_SUPPLEMENT", target_city, t_exa, brands_with_exa=fetched)
     progress.append(f"✅ Exa suplementar: conteúdo extra em {fetched}/{len(working)} marcas")
 
-    # N3c: unified LLM extraction (batches in parallel)
-    t_llm = step_begin(logger, "N3c_LLM_UNIFIED", target_city,
-                       "Extracção estruturada única (discovery + Exa), batches paralelos.")
     total_batches = (len(working) + ENRICH_BATCH_SIZE - 1) // ENRICH_BATCH_SIZE
     llm_sem = (
         asyncio.Semaphore(ENRICH_LLM_BATCH_CONCURRENT)
@@ -479,10 +477,9 @@ async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
         return await _run_unified_batch_inner(batch_start)
 
     async def _run_unified_batch_inner(batch_start: int) -> tuple:
-        batch = working[batch_start:batch_start + ENRICH_BATCH_SIZE]
-        batch_exa = exa_contents[batch_start:batch_start + ENRICH_BATCH_SIZE]
+        batch = working[batch_start: batch_start + ENRICH_BATCH_SIZE]
+        batch_exa = exa_contents[batch_start: batch_start + ENRICH_BATCH_SIZE]
         batch_num = (batch_start // ENRICH_BATCH_SIZE) + 1
-        logger.info("Enrich LLM unified batch %d/%d (%d brands)", batch_num, total_batches, len(batch))
         extracted = await _extract_structured_batch(batch, batch_exa, target_city, target_country)
         merged_rows = []
         for i, row in enumerate(extracted):
@@ -498,44 +495,124 @@ async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
     for _bs, batch_num, merged_rows in batch_results:
         all_structured.extend(merged_rows)
         progress.append(f"  ✓ LLM batch {batch_num}/{total_batches} ({len(merged_rows)} marcas)")
-    step_end(logger, "N3c_LLM_UNIFIED", target_city, t_llm, brands=len(all_structured))
     progress.append(f"✅ Extracção única: {len(all_structured)} marcas")
 
-    # N3d: batched HQ knowledge fallback (no per-brand Exa+LLM HQ pass)
     needing_hq = [
         b for b in all_structured
         if b.get("headquarters_confidence") != "verified" and not b.get("headquarters_city")
     ]
-    t_hq = step_begin(logger, "N3d_HQ_BATCH_LLM", target_city,
-                      f"HQ knowledge batch para {len(needing_hq)} marcas.")
     if needing_hq:
         progress.append(f"🏢 HQ knowledge batch: {len(needing_hq)} marcas...")
         await resolve_headquarters_via_llm_batch(needing_hq)
-    hq_resolved = sum(1 for b in all_structured if b.get("headquarters_city"))
+
     city_ctx = await batch_check_hq_cities_against_target(
         city_ctx,
         [b["headquarters_city"] for b in all_structured if b.get("headquarters_city")],
     )
-    step_end(logger, "N3d_HQ_BATCH_LLM", target_city, t_hq, hq_resolved=hq_resolved)
+    hq_resolved = sum(1 for b in all_structured if b.get("headquarters_city"))
     progress.append(f"✅ Sede: {hq_resolved}/{len(all_structured)} marcas")
 
-    # N3e: Google Places
-    t_places = step_begin(logger, "N3e_GOOGLE_PLACES", target_city,
-                          f"Google Places para {len(all_structured)} marcas.")
     progress.append(f"📍 Google Places para {len(all_structured)} marcas...")
     all_structured = await _enrich_with_google_places(all_structured, city_ctx)
     places_with = sum(
         1 for b in all_structured
         if b.get("_places_store_count", 0) > 0 or b.get("local_store_address")
     )
-    step_end(logger, "N3e_GOOGLE_PLACES", target_city, t_places, with_places=places_with)
     progress.append(f"✅ Google Places: {places_with}/{len(all_structured)}")
 
-    # N3f: merge + validate
-    t_merge = step_begin(logger, "N3f_MERGE_VALIDATE", target_city, "Merge lojas + validar.")
     enriched = _merge_and_validate_locations(all_structured, city_ctx)
-    step_end(logger, "N3f_MERGE_VALIDATE", target_city, t_merge, validated=len(enriched))
     progress.append(f"✅ Localização validada: {len(enriched)} marcas")
+    return enriched, city_ctx
+
+
+# ============================================================================
+# MAIN NODE
+# ============================================================================
+
+async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
+    target_city = state.get("target_city") if isinstance(state, dict) else getattr(state, "target_city", "")
+    target_country = state.get("target_country") if isinstance(state, dict) else getattr(state, "target_country", "")
+    filtered_brands = state.get("filtered_brands") if isinstance(state, dict) else getattr(state, "filtered_brands", [])
+
+    t_node = step_begin(
+        logger, "N3_ENRICH", target_city,
+        f"Enriquecer {len(filtered_brands)} marcas (brand_facts → full ou local-only).",
+    )
+    progress = [f"📊 Enriquecendo {len(filtered_brands)} marcas..."]
+
+    if not filtered_brands:
+        step_end(logger, "N3_ENRICH", target_city, t_node, "sem marcas")
+        return {"enriched_brands": [], "progress": progress + ["⚠️ Nenhuma marca para enriquecer"]}
+
+    city_ctx = await resolve_target_city_context(target_city)
+    if not target_country and city_ctx.country:
+        target_country = city_ctx.country
+
+    working = _prepare_working_brands(filtered_brands)
+
+    t_cache = step_begin(logger, "N3_CACHE_BRAND_FACTS", target_city,
+                         f"Verificar brand_facts para {len(working)} marcas.")
+    domains = [extract_domain(b.get("website_url") or b.get("url", "")) for b in working]
+    facts_by_domain = await get_brand_facts_batch(domains)
+    ttl_days = get_brand_facts_ttl_days()
+
+    cache_hit: List[Dict] = []
+    cache_miss: List[Dict] = []
+    for brand in working:
+        domain = extract_domain(brand.get("website_url") or brand.get("url", ""))
+        facts = facts_by_domain.get(domain) if domain else None
+        if facts and is_brand_facts_fresh(facts.get("updated_at"), ttl_days):
+            apply_brand_facts_to_brand(brand, facts)
+            cache_hit.append(brand)
+        else:
+            cache_miss.append(brand)
+
+    step_end(
+        logger, "N3_CACHE_BRAND_FACTS", target_city, t_cache,
+        hits=len(cache_hit), misses=len(cache_miss), ttl_days=ttl_days,
+    )
+    progress.append(
+        f"📦 brand_facts: {len(cache_hit)} cache hit, {len(cache_miss)} enrich completo "
+        f"(TTL {ttl_days}d)"
+    )
+
+    enriched_by_url: Dict[str, Dict] = {}
+
+    if cache_miss:
+        t_full = step_begin(logger, "N3_FULL_ENRICH", target_city,
+                            f"Enrich completo para {len(cache_miss)} marcas.")
+        full_enriched, city_ctx = await _run_full_enrich_pipeline(
+            cache_miss, target_city, target_country, city_ctx, progress
+        )
+        step_end(logger, "N3_FULL_ENRICH", target_city, t_full, brands=len(full_enriched))
+        for b in full_enriched:
+            url = b.get("website_url") or ""
+            if url:
+                enriched_by_url[url] = b
+
+    if cache_hit:
+        t_local = step_begin(logger, "N3_LOCAL_ONLY", target_city,
+                             f"Só presença local para {len(cache_hit)} marcas (cache).")
+        local_enriched, city_ctx = await _enrich_cached_brands_local_only(
+            cache_hit, city_ctx, target_city, progress
+        )
+        step_end(logger, "N3_LOCAL_ONLY", target_city, t_local, brands=len(local_enriched))
+        for b in local_enriched:
+            url = b.get("website_url") or ""
+            if url:
+                enriched_by_url[url] = b
+
+    enriched = []
+    for brand in working:
+        url = brand.get("website_url") or brand.get("url", "")
+        if url in enriched_by_url:
+            enriched.append(enriched_by_url[url])
+
+    t_save_facts = step_begin(logger, "N3_SAVE_BRAND_FACTS", target_city, "Persistir brand_facts.")
+    saved_facts = await upsert_brand_facts_from_brands(enriched)
+    step_end(logger, "N3_SAVE_BRAND_FACTS", target_city, t_save_facts, upserted=saved_facts)
+    if saved_facts:
+        progress.append(f"💾 brand_facts actualizados: {saved_facts} domínios")
 
     for b in enriched:
         logger.info(
