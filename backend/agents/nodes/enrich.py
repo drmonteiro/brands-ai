@@ -34,7 +34,7 @@ from services.location_enrichment import (
     resolve_target_city_context,
     validate_location_data,
 )
-from .utils import get_llm
+from .utils import get_llm_for_task
 from .pipeline_timing import step_begin, step_end
 
 logger = logging.getLogger("node.enrich")
@@ -146,7 +146,7 @@ async def _extract_structured_batch(
     """
     One LLM call per batch: discovery + pricing + about + store-locator combined.
     """
-    llm = get_llm(fast=False)
+    llm = get_llm_for_task("structured_extract")
     fx_rules = extraction_fx_rules_text()
 
     blocks = []
@@ -330,12 +330,22 @@ async def _enrich_with_google_places(
             if not brand_name:
                 return brand
             try:
+                site_store_conf = (
+                    brand.get("_site_store_confidence") or "unknown"
+                ).lower()
+                count_all_locations = site_store_conf != "verified"
                 places_data = await enrich_with_places(
                     brand_name=brand_name,
                     city=target_city,
                     country=country,
                     website_url=brand.get("website_url", ""),
+                    count_all_locations=count_all_locations,
                 )
+                if not count_all_locations:
+                    logger.debug(
+                        "  Places: skip global count for %s (site stores verified)",
+                        brand_name,
+                    )
                 local_addr = places_data.get("local_store_address")
                 if local_addr and not city_in_text(city_ctx, local_addr):
                     local_addr = None

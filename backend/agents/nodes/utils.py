@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from langchain_openai import AzureChatOpenAI
 from config import Config
 from services.currency import get_eur_usd_rate, eur_to_usd as _eur_to_usd
+from services.llm_tasks import task_uses_fast_model
 
 
 def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
@@ -30,6 +31,13 @@ def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
         temperature=safe_temperature,
         max_tokens=12000,
     )
+
+
+def get_llm_for_task(task: str, temperature: float = 0.3) -> AzureChatOpenAI:
+    """
+    Pipeline LLM picker. See services/llm_tasks.py for task keys and env overrides.
+    """
+    return get_llm(fast=task_uses_fast_model(task), temperature=temperature)
 
 
 async def get_exchange_rate() -> float:

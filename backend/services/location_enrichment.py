@@ -119,7 +119,7 @@ async def resolve_target_city_context(city_query: str) -> CityContext:
     if not city_query or not city_query.strip():
         return CityContext.fallback(city_query or "")
 
-    llm = _get_llm(fast=True)
+    llm = _get_llm("city_context")
     prompt = f"""The user is searching for menswear brands in the city "{city_query}".
 
 Return the standard names for this SAME municipality (English, local language, common alternate spellings).
@@ -180,7 +180,7 @@ async def batch_check_hq_cities_against_target(
     if not unknown:
         return ctx
 
-    llm = _get_llm(fast=True)
+    llm = _get_llm("city_context")
     cities_block = "\n".join(f"- {c}" for c in unknown[:30])
     names_block = ", ".join(ctx.names)
 
@@ -264,10 +264,10 @@ def get_domain_from_url(url: str) -> str:
         return url
 
 
-def _get_llm(fast: bool = False):
+def _get_llm(task: str):
     """Lazy import to avoid loading langgraph when testing pure location helpers."""
-    from agents.nodes.utils import get_llm
-    return get_llm(fast=fast)
+    from agents.nodes.utils import get_llm_for_task
+    return get_llm_for_task(task)
 
 
 def _normalize_address(addr: str) -> str:
@@ -408,7 +408,7 @@ async def extract_hq_from_content(brand_name: str, hq_content: str) -> Dict[str,
             "headquarters_confidence": "unknown",
         }
 
-    llm = _get_llm(fast=False)
+    llm = _get_llm("hq_from_content")
     prompt = f"""Extract headquarters information for the menswear brand "{brand_name}" from the content below.
 
 RULES:
@@ -463,7 +463,7 @@ async def resolve_headquarters_via_llm_batch(brands: List[Dict[str, Any]]) -> Li
     if not brands:
         return []
 
-    llm = _get_llm(fast=False)
+    llm = _get_llm("hq_batch")
     blocks = []
     for i, b in enumerate(brands):
         blocks.append(
@@ -526,7 +526,7 @@ async def resolve_headquarters_via_llm(
     description: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Ask Azure LLM for HQ — only when highly confident; never guess."""
-    llm = _get_llm(fast=False)
+    llm = _get_llm("hq_batch")
     domain = get_domain_from_url(website_url)
     context_parts = [f"Website: {website_url or 'unknown'}"]
     if domain:
@@ -588,7 +588,7 @@ async def extract_stores_from_content(brand_name: str, store_content: str) -> Di
     if not store_content or not store_content.strip():
         return {"stores": [], "total_count": None, "confidence": "unknown", "addresses": []}
 
-    llm = _get_llm(fast=False)
+    llm = _get_llm("store_extract")
     prompt = f"""Extract physical store locations for the menswear brand "{brand_name}" from the content below.
 
 RULES:

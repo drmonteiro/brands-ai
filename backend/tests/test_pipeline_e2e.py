@@ -90,7 +90,9 @@ async def _mock_hq_batch_llm(brands):
     return brands
 
 
-async def _mock_enrich_with_places(brand_name, city, country="", website_url=""):
+async def _mock_enrich_with_places(
+    brand_name, city, country="", website_url="", *, count_all_locations=True
+):
     return {
         "local_store_address": f"{brand_name}, 1 Savile Row, London",
         "local_store_phone": "+44 20 0000 0000",

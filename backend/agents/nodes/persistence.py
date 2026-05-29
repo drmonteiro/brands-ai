@@ -21,7 +21,7 @@ from services.location_enrichment import (
     resolve_target_city_context,
 )
 from data.lanca_clients import LANCA_CLIENTS
-from .utils import get_llm, normalize_url
+from .utils import get_llm_for_task, normalize_url
 from .pipeline_timing import step_begin, step_end
 
 logger = logging.getLogger("node.persistence")
@@ -95,7 +95,7 @@ async def _llm_fit_assessment(brands: List[Dict], target_city: str) -> List[Dict
     Use LLM to assess how well each brand fits as a Lança manufacturing partner.
     Returns list of {url, fit_score (0-10), fit_reason}.
     """
-    llm = get_llm(fast=False)
+    llm = get_llm_for_task("fit_assessment")
 
     brands_block = "\n\n".join(
         f"--- BRAND {i+1} ---\n"
