@@ -62,35 +62,33 @@ async def _infer_country(city: str) -> str:
 
 async def _generate_queries(city: str, country: str) -> List[str]:
     """
-    Use LLM to generate 8-10 Exa search queries tailored to the city.
-    Focus: men's suit BRANDS and RETAILERS (not individual bespoke tailors).
+    Generate 8-12 Exa queries for independent boutiques, tailor shops, and small mid-to-high menswear.
     """
     llm = get_llm(fast=True)
-    prompt = f"""You are helping a Portuguese suit manufacturer find potential retail partners.
+    prompt = f"""You are helping Confeções Lança (Portuguese mid-to-high menswear manufacturer, suits €500-€1700) find retail partners in {city}, {country}.
 
-CITY: {city}
-COUNTRY: {country}
+Generate 8-12 web search queries to discover MEN'S SUIT / TAILORING businesses in {city}.
 
-Generate 8-10 search queries to find MEN'S SUIT BRANDS AND RETAILERS in {city}.
+TARGET SEGMENT (include actively — these match real Lança clients):
+- Independent menswear boutiques (1-20 stores, often single-location)
+- Alfaiataria / tailor shops WITH their own retail store (bespoke or made-to-measure welcome)
+- Small premium menswear brands: suits, blazers, tailored jackets as core products
+- Heritage or contemporary tailoring shops, sartorial menswear
 
-IMPORTANT RULES:
-- We want BRANDS and RETAILERS that sell men's suits (ready-to-wear), NOT individual bespoke tailors
-- We want businesses with physical stores (ideally 2-20 stores), not online-only
-- Include queries in English AND the local language of {city}
-- Focus on: suits, blazers, tailored jackets, formal menswear
-- DO NOT focus on: bespoke-only tailors, made-to-measure-only ateliers, shirt-only shops
-- Mix different angles: "men's suit brand", "menswear retailer", "formal wear store", "suit shop"
+STILL EXCLUDE via query wording (do not search for):
+- Fast fashion, streetwear, sportswear, sneaker brands
+- Large department stores and global chains (Zara, H&M, Macy's, etc.)
+- Women's-only fashion, shirt-only or accessory-only brands
+- Blogs, magazines, marketplaces, directories
 
-GOOD query examples:
-- "men's suit brands {city} retailer"
-- "premium menswear store {city} suits"
-- "formal wear brand {city} multiple locations"
-- "{city} men's clothing store suits jackets"
-
-BAD query examples (too narrow):
-- "bespoke tailor {city}" (finds only individual tailors)
-- "custom suit {city}" (finds only made-to-measure)
-- "Savile Row style {city}" (too luxury/niche)
+QUERY RULES:
+- Mix English AND the local language(s) of {city}
+- Use varied angles, e.g.:
+  • independent menswear boutique {city}
+  • alfaiataria homem {city} / men's tailoring shop {city}
+  • premium suit shop {city} / negozio abiti uomo {city}
+  • sartorial menswear {city} / bespoke tailor shop {city} (shop with address, not freelance)
+  • men's suit maker boutique {city}
 
 Return ONLY a JSON array of query strings. No explanation.
 Example: ["query 1", "query 2", ...]"""
@@ -107,12 +105,14 @@ Example: ["query 1", "query 2", ...]"""
         logger.warning("LLM query generation failed: %s — using fallback queries", e)
 
     return [
-        f"men's suit brands {city} retailer",
-        f"premium menswear store {city} suits jackets",
-        f"formal wear brand {city} {country}",
-        f"{city} men's clothing store suits",
-        f"best suit shops {city} {country}",
-        f"menswear retailer {city} multiple stores",
+        f"independent menswear boutique {city} suits",
+        f"men's tailoring shop {city} {country}",
+        f"premium suit shop {city}",
+        f"alfaiataria homem {city}",
+        f"bespoke tailor shop {city} menswear",
+        f"sartorial menswear boutique {city}",
+        f"men's suit maker {city} store",
+        f"formal menswear retailer {city} jackets trousers",
     ]
 
 

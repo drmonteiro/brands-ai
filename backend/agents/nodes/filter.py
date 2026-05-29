@@ -15,6 +15,7 @@ from .pipeline_timing import step_begin, step_end
 logger = logging.getLogger("node.filter")
 
 FILTER_BATCH_SIZE = 12
+FILTER_CONTENT_EXCERPT_CHARS = 3500
 
 
 async def _filter_batch(candidates: List[Dict], target_city: str) -> List[Dict]:
@@ -28,19 +29,20 @@ async def _filter_batch(candidates: List[Dict], target_city: str) -> List[Dict]:
         f"--- CANDIDATE {i+1} ---\n"
         f"URL: {c['url']}\n"
         f"TITLE: {c.get('title', '')}\n"
-        f"CONTENT (excerpt): {(c.get('text', '') or c.get('highlights', ''))[:2000]}"
+        f"CONTENT (excerpt): {(c.get('text', '') or c.get('highlights', ''))[:FILTER_CONTENT_EXCERPT_CHARS]}"
         for i, c in enumerate(candidates)
     )
 
     prompt = f"""You are a strict filter for a Portuguese suit manufacturer (Confeções Lança).
-We ONLY want brands/retailers that sell MEN'S SUITS (fatos de homem).
+We want businesses that sell MEN'S SUITS or tailored menswear (fatos de homem / alfaiataria masculina).
 
 CITY: {target_city}
 
-KEEP if the business sells:
-- Men's suits (complete suits, two-piece, three-piece)
-- Men's blazers/sport coats + tailored trousers (suit separates)
-- Formal menswear with suits as a core product
+KEEP if the business sells (even with limited snippet evidence):
+- Men's suits (complete, two-piece, three-piece) OR strong tailoring/sartorial focus
+- Men's blazers/sport coats and tailored trousers (suit separates)
+- Independent boutique, tailor shop with store, or small brand (1-20 stores) — bespoke/MTM is OK
+- Formal/premium menswear where suits or tailoring are a core category
 
 REMOVE if the business is:
 - T-shirt, casual wear, streetwear, sportswear brand
