@@ -13,6 +13,7 @@ from models import BrandLead
 from agents.graph import _get_app_with_postgres
 from agents.nodes.pipeline_timing import format_duration
 from services.database import city_has_results, get_prospects_by_city
+from services.currency import get_eur_usd_rate, eur_to_usd
 
 logger = logging.getLogger("workflow")
 
@@ -24,7 +25,7 @@ def _create_initial_state(city: str) -> dict:
     return {
         "target_city": city,
         "target_country": "",
-        "exchange_rate": 1.08,
+        "exchange_rate": get_eur_usd_rate(),
         "search_results_raw": [],
         "filtered_brands": [],
         "enriched_brands": [],
@@ -67,7 +68,7 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
                         "name": b.get("name"),
                         "websiteUrl": b.get("website_url"),
                         "storeCount": b.get("store_count"),
-                        "averageSuitPriceUSD": (b.get("avg_suit_price_eur") or 0) * 1.08,
+                        "averageSuitPriceUSD": eur_to_usd(b.get("avg_suit_price_eur") or 0),
                         "city": b.get("city"),
                         "originCountry": b.get("country"),
                         "verified": b.get("status") != "new",
@@ -80,13 +81,18 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
                         "woolPercentage": material_comp[0] if material_comp else None,
                         "madeToMeasure": b.get("made_to_measure") is True,
                         "headquartersAddress": b.get("headquarters_address"),
+                        "headquartersCity": b.get("headquarters_city"),
+                        "headquartersConfidence": b.get("headquarters_confidence"),
+                        "localStoreAddress": b.get("local_store_address"),
+                        "cityPresenceType": b.get("city_presence_type"),
+                        "storeCountConfidence": b.get("store_count_confidence"),
                     }
                     brands.append(brand_dict)
                 else:
                     brands.append(b)
 
             logger.info("Returning %d cached brands for '%s' (%.1fs)", len(brands), city, time.time() - start_time)
-            yield f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands, 'cached': True})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands, 'cached': True, 'similarityDegraded': False})}\n\n"
             return
 
         # 2. Run Workflow (STREAMING with heartbeat)
@@ -126,7 +132,13 @@ async def prospect_event_generator(city: str, force_refresh: bool = False) -> As
                         "[PIPELINE] COMPLETE | city=%s | brands=%d | duration=%s (%.2f min)",
                         city, len(brands), format_duration(elapsed), elapsed / 60.0,
                     )
-                    msg = f"data: {json.dumps({'type': 'complete', 'verifiedBrands': brands})}\n\n"
+                    complete_payload = {
+                        "type": "complete",
+                        "verifiedBrands": brands,
+                        "similarityDegraded": bool(final_result.get("similarity_degraded")),
+                        "similarityFailureCount": final_result.get("similarity_failure_count", 0),
+                    }
+                    msg = f"data: {json.dumps(complete_payload)}\n\n"
                     await queue.put(msg)
             except Exception as e:
                 logger.exception("Workflow error for '%s'", city)

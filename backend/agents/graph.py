@@ -58,6 +58,10 @@ class GraphState(TypedDict):
     # Error tracking
     error: Optional[str]
 
+    # Similarity health (N4) — surfaced in SSE when embedding/pgvector fails
+    similarity_degraded: Optional[bool]
+    similarity_failure_count: Optional[int]
+
 
 # ============================================================================
 # CHECKPOINTER (PostgreSQL)

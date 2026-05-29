@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+from services.currency import usd_to_eur
+
 
 RUBRIC_PATH = Path(__file__).resolve().parent.parent / "rubric.yaml"
 
@@ -78,7 +80,7 @@ def _normalise_brand(brand: Dict) -> Dict:
     if price == 0:
         usd = brand.get("average_suit_price_usd") or brand.get("averageSuitPriceUSD") or 0
         if usd:
-            price = float(usd) / 1.08
+            price = usd_to_eur(float(usd))
     try:
         price = float(price)
     except (TypeError, ValueError):

@@ -66,6 +66,12 @@ export default function Home() {
                   throw new Error(data.message || "Erro no servidor.");
                 }
                 
+                if (data.type === "complete" && data.similarityDegraded) {
+                  toast.warning(
+                    `Pesquisa concluída com aviso: ${data.similarityFailureCount ?? "?"} marcas sem similaridade (run degradado).`
+                  );
+                }
+
                 if (data.message) {
                   setProgressMessages(prev => [...prev.slice(-3), data.message]);
                 }

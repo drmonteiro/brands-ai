@@ -9,12 +9,15 @@ import logging
 from typing import List, Dict, Any, Union
 
 from models import ProspectorState, BrandLead
-from services.vector_db import (
-    find_similar_clients,
-    generate_client_profile_text,
-    generate_similarity_explanation,
-)
+from services.vector_db import find_similar_clients
 from services.database import save_prospect, get_existing_urls_for_city
+from services.scoring import calculate_city_presence_score
+from services.currency import eur_to_usd, get_eur_usd_rate
+from services.location_enrichment import (
+    should_exclude_brand_for_location,
+    CityContext,
+    resolve_target_city_context,
+)
 from data.lanca_clients import LANCA_CLIENTS
 from .utils import get_llm, normalize_url
 from .pipeline_timing import step_begin, step_end
@@ -22,6 +25,8 @@ from .pipeline_timing import step_begin, step_end
 logger = logging.getLogger("node.persistence")
 
 MAX_OUTPUT_BRANDS = 20
+# Fraction of brands with embedding failures that marks the whole run as degraded
+SIMILARITY_DEGRADED_FAILURE_RATIO = 0.25
 
 # Country name → ISO code for scoring
 COUNTRY_TO_CODE = {
@@ -157,7 +162,14 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
     """
     target_city = state.get("target_city") if isinstance(state, dict) else getattr(state, "target_city", "")
     enriched_brands = state.get("enriched_brands") if isinstance(state, dict) else getattr(state, "enriched_brands", [])
-    exchange_rate = state.get("exchange_rate") if isinstance(state, dict) else getattr(state, "exchange_rate", 1.08)
+    exchange_rate = (
+        state.get("exchange_rate")
+        if isinstance(state, dict)
+        else getattr(state, "exchange_rate", None)
+    ) or get_eur_usd_rate()
+
+    ctx_data = state.get("target_city_context") if isinstance(state, dict) else getattr(state, "target_city_context", None)
+    city_ctx = CityContext.from_dict(ctx_data) if ctx_data else await resolve_target_city_context(target_city)
 
     t_node = step_begin(logger, "N4_SCORE_SAVE", target_city,
                         f"Scoring + persistência de {len(enriched_brands)} marcas.")
@@ -169,6 +181,8 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
         return {
             "verified_brands": [],
             "progress": progress + ["🎯 RESULTADO FINAL: 0 marcas encontradas"],
+            "similarity_degraded": False,
+            "similarity_failure_count": 0,
         }
 
     # --- Pre-filter: Exclude existing Lança clients ---
@@ -177,10 +191,8 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
 
     pre_filter_count = len(enriched_brands)
     filtered_out_clients = []
-    filtered_out_hq = []
+    filtered_out_location = []
     remaining = []
-
-    target_city_lower = target_city.lower().strip()
 
     for brand in enriched_brands:
         brand_name_lower = (brand.get("name") or "").lower().strip()
@@ -195,10 +207,13 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
             filtered_out_clients.append(brand.get("name", "?"))
             continue
 
-        # Check if HQ is in the target city
-        hq_city = (brand.get("headquarters_city") or "").lower().strip()
-        if hq_city and hq_city != target_city_lower:
-            filtered_out_hq.append(f"{brand.get('name', '?')} (HQ: {brand.get('headquarters_city')})")
+        # Exclude only when HQ is confidently elsewhere AND no store/HQ in target city
+        if should_exclude_brand_for_location(brand, city_ctx):
+            hq = brand.get("headquarters_city", "?")
+            presence = brand.get("city_presence_type", "unknown")
+            filtered_out_location.append(
+                f"{brand.get('name', '?')} (HQ: {hq}, presence: {presence})"
+            )
             continue
 
         remaining.append(brand)
@@ -208,10 +223,13 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
                     len(filtered_out_clients), ", ".join(filtered_out_clients))
         progress.append(f"🚫 Excluídos {len(filtered_out_clients)} clientes Lança existentes")
 
-    if filtered_out_hq:
-        logger.info("Excluded %d brands not HQ'd in %s: %s",
-                    len(filtered_out_hq), target_city, ", ".join(filtered_out_hq[:10]))
-        progress.append(f"📍 Excluídas {len(filtered_out_hq)} marcas sem sede em {target_city}")
+    if filtered_out_location:
+        logger.info("Excluded %d brands with no presence in %s: %s",
+                    len(filtered_out_location), target_city,
+                    ", ".join(filtered_out_location[:10]))
+        progress.append(
+            f"📍 Excluídas {len(filtered_out_location)} marcas sem presença em {target_city}"
+        )
 
     enriched_brands = remaining
     logger.info("After pre-filters: %d → %d brands", pre_filter_count, len(enriched_brands))
@@ -221,6 +239,8 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
         return {
             "verified_brands": [],
             "progress": progress + [f"🎯 RESULTADO FINAL: 0 marcas (todas filtradas)"],
+            "similarity_degraded": False,
+            "similarity_failure_count": 0,
         }
 
     existing_urls = await get_existing_urls_for_city(target_city)
@@ -233,24 +253,74 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
     similarity_scores = {}
     similar_client_data = {}
 
+    similarity_failure_count = 0
+
     for brand in enriched_brands:
+        url = brand.get("website_url", "")
         profile_text = _build_profile_text(brand)
         try:
             similar = await find_similar_clients(profile_text, n_results=3)
             if similar:
                 top_sim = min(similar[0]["similarity"], 100)
-                similarity_scores[brand.get("website_url", "")] = top_sim
-                similar_client_data[brand.get("website_url", "")] = similar
+                similarity_scores[url] = top_sim
+                similar_client_data[url] = similar
+                brand["similarity_failed"] = False
             else:
-                similarity_scores[brand.get("website_url", "")] = 50.0
-                similar_client_data[brand.get("website_url", "")] = []
+                similarity_scores[url] = 50.0
+                similar_client_data[url] = []
+                brand["similarity_failed"] = False
+                logger.warning(
+                    "SIMILARITY_EMPTY brand=%s url=%s (no similar clients returned)",
+                    brand.get("name", "?"),
+                    url,
+                )
         except Exception as e:
-            logger.warning("Similarity error for %s: %s", brand.get("name", "?"), e)
-            similarity_scores[brand.get("website_url", "")] = 50.0
-            similar_client_data[brand.get("website_url", "")] = []
+            brand["similarity_failed"] = True
+            similarity_failure_count += 1
+            similarity_scores[url] = 0.0
+            similar_client_data[url] = []
+            logger.error(
+                "SIMILARITY_FAILED brand=%s url=%s: %s",
+                brand.get("name", "?"),
+                url,
+                e,
+                exc_info=True,
+            )
+            progress.append(
+                f"⚠️ Similaridade falhou: {brand.get('name', '?')} ({type(e).__name__})"
+            )
 
-    step_end(logger, "N4a_SIMILARITY", target_city, t_sim,
-             brands_compared=len(similarity_scores))
+    total_for_similarity = len(enriched_brands)
+    similarity_degraded = (
+        total_for_similarity > 0
+        and (similarity_failure_count / total_for_similarity) >= SIMILARITY_DEGRADED_FAILURE_RATIO
+    )
+
+    if similarity_failure_count:
+        progress.append(
+            f"⚠️ {similarity_failure_count}/{total_for_similarity} marcas sem similaridade (embedding/pgvector)"
+        )
+    if similarity_degraded:
+        progress.append(
+            f"🚨 RUN DEGRADADO: {similarity_failure_count}/{total_for_similarity} falhas de similaridade — "
+            "scores de similaridade não são fiáveis nesta execução"
+        )
+        logger.error(
+            "PIPELINE_DEGRADED city=%s similarity_failures=%d/%d",
+            target_city,
+            similarity_failure_count,
+            total_for_similarity,
+        )
+
+    step_end(
+        logger,
+        "N4a_SIMILARITY",
+        target_city,
+        t_sim,
+        brands_compared=len(similarity_scores),
+        failures=similarity_failure_count,
+        degraded=similarity_degraded,
+    )
     progress.append(f"✅ Similaridade calculada para {len(similarity_scores)} marcas")
 
     # --- Phase 2: LLM fit assessment ---
@@ -334,6 +404,9 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
         brand["price_score"] = round(price_score, 2)
         brand["size_score"] = round(size_score, 2)
 
+        city_presence = brand.get("city_presence_type", "unknown")
+        brand["city_presence_score"] = round(calculate_city_presence_score(city_presence), 2)
+
         # Store similar client info
         similar = similar_client_data.get(url, [])
         if similar:
@@ -405,6 +478,11 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
             "made_to_measure": brand.get("made_to_measure"),
             "wool_percentage": brand.get("wool_percentage"),
             "headquarters_address": brand.get("headquarters_address"),
+            "headquarters_city": brand.get("headquarters_city"),
+            "headquarters_confidence": brand.get("headquarters_confidence", "unknown"),
+            "local_store_address": brand.get("local_store_address"),
+            "city_presence_type": brand.get("city_presence_type", "unknown"),
+            "store_count_confidence": brand.get("store_count_confidence", "unknown"),
             "price_note": price_note_str,
             "contact_email": brand.get("contact_email"),
             "contact_phone": brand.get("contact_phone"),
@@ -425,7 +503,7 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
                 "wool_score": 0,
                 "mtm_score": 0,
                 "market_score": 0,
-                "city_presence_score": 0,
+                "city_presence_score": brand.get("city_presence_score", 0),
             },
             "explanation": {
                 "price": f"€{prospect_dict['avg_suit_price_eur']:.0f}" if prospect_dict["avg_suit_price_eur"] > 0 else "Unknown",
@@ -433,7 +511,7 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
                 "most_similar_client": brand.get("most_similar_client", "N/A"),
                 "similarity_to_best_match": brand.get("similarity_to_best_match", 0),
                 "similarity_explanation": (brand.get("llm_fit_reason", "") or "")[:250],
-                "city_presence": "unknown",
+                "city_presence": brand.get("city_presence_type", "unknown"),
                 "wool": brand.get("wool_percentage", "Unknown"),
                 "mtm": "Unknown" if brand.get("made_to_measure") is None else ("Yes" if brand.get("made_to_measure") else "No"),
             },
@@ -454,7 +532,10 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
                     name=prospect_dict["name"],
                     website_url=url,
                     store_count=prospect_dict["store_count"],
-                    average_suit_price_usd=prospect_dict["avg_suit_price_eur"] * (state.get("exchange_rate", 1.08) if isinstance(state, dict) else getattr(state, "exchange_rate", 1.08)),
+                    average_suit_price_usd=eur_to_usd(
+                        prospect_dict["avg_suit_price_eur"], exchange_rate
+                    ),
+                    similarity_failed=brand.get("similarity_failed") or False,
                     city=target_city,
                     origin_country=prospect_dict["country"],
                     avg_suit_price_eur=prospect_dict["avg_suit_price_eur"],
@@ -467,6 +548,11 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
                     wool_percentage=brand.get("wool_percentage"),
                     made_to_measure=brand.get("made_to_measure"),
                     headquarters_address=prospect_dict.get("headquarters_address"),
+                    headquarters_city=prospect_dict.get("headquarters_city"),
+                    headquarters_confidence=prospect_dict.get("headquarters_confidence"),
+                    local_store_address=prospect_dict.get("local_store_address"),
+                    city_presence_type=prospect_dict.get("city_presence_type"),
+                    store_count_confidence=prospect_dict.get("store_count_confidence"),
                     price_note=price_note_str,
                     contact_email=prospect_dict.get("contact_email"),
                 )
@@ -489,4 +575,6 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
     return {
         "verified_brands": verified_brands,
         "progress": progress,
+        "similarity_degraded": similarity_degraded,
+        "similarity_failure_count": similarity_failure_count,
     }

@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 from services.database import get_prospects_filtered
+from services.currency import usd_to_eur
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -40,7 +41,7 @@ async def export_prospects_csv(
         # Resolve legacy field names correctly
         price = p.get("avg_suit_price_eur") or p.get("avgSuitPriceEUR") or p.get("averageSuitPriceUSD")
         if p.get("averageSuitPriceUSD") and not p.get("avg_suit_price_eur"):
-            price = round(float(p.get("averageSuitPriceUSD")) / 1.08, 2)
+            price = round(usd_to_eur(float(p.get("averageSuitPriceUSD"))), 2)
             
         score = p.get("final_score") or p.get("fit_score") or p.get("fitScore") or 0
         

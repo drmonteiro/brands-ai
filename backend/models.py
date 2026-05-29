@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator, model_valida
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
+from services.currency import get_eur_usd_rate, eur_to_usd, usd_to_eur
+
 
 # ============================================================================
 # ENUMS
@@ -114,9 +116,15 @@ class BrandLead(BaseModel):
     # Location
     store_locations: Optional[List[str]] = Field(default_factory=list, alias="storeLocations")
     headquarters_address: Optional[str] = Field(None, alias="headquartersAddress")
+    headquarters_city: Optional[str] = Field(None, alias="headquartersCity")
+    headquarters_confidence: Optional[str] = Field("unknown", alias="headquartersConfidence")
+    local_store_address: Optional[str] = Field(None, alias="localStoreAddress")
+    city_presence_type: Optional[str] = Field("unknown", alias="cityPresenceType")
+    store_count_confidence: Optional[str] = Field("unknown", alias="storeCountConfidence")
 
     # Scoring
     fit_score: Optional[int] = Field(default=0, alias="fitScore")
+    similarity_failed: Optional[bool] = Field(default=None, alias="similarityFailed")
 
     # Contact (populated by Google Places or future enrichment)
     contact_name: Optional[str] = Field(None, alias="contactName")
@@ -188,10 +196,11 @@ class BrandLead(BaseModel):
         return v or []
 
     def model_post_init(self, __context):
+        rate = get_eur_usd_rate()
         if (self.average_suit_price_usd == 0) and self.avg_suit_price_eur is not None:
-            self.average_suit_price_usd = self.avg_suit_price_eur * 1.08
+            self.average_suit_price_usd = eur_to_usd(self.avg_suit_price_eur, rate)
         if self.avg_suit_price_eur is None and self.average_suit_price_usd > 0:
-            self.avg_suit_price_eur = self.average_suit_price_usd / 1.08
+            self.avg_suit_price_eur = usd_to_eur(self.average_suit_price_usd, rate)
 
 
 # ============================================================================
@@ -202,7 +211,7 @@ class ProspectorState(BaseModel):
     """State for the prospecting agent workflow."""
     target_city: str
     target_country: str = ""
-    exchange_rate: float = 1.08
+    exchange_rate: float = Field(default_factory=get_eur_usd_rate)
     search_results_raw: List[Dict] = Field(default_factory=list)
     filtered_brands: List[Dict] = Field(default_factory=list)
     enriched_brands: List[Dict] = Field(default_factory=list)

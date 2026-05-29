@@ -6,6 +6,7 @@ import re
 from urllib.parse import urlparse
 from langchain_openai import AzureChatOpenAI
 from config import Config
+from services.currency import get_eur_usd_rate, eur_to_usd as _eur_to_usd
 
 
 def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
@@ -32,12 +33,12 @@ def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
 
 
 async def get_exchange_rate() -> float:
-    """Fetch current EUR to USD exchange rate."""
-    return 1.08
+    """EUR→USD rate (EUR_USD_RATE env, default 1.08)."""
+    return get_eur_usd_rate()
 
 
-def convert_eur_to_usd(eur: float, rate: float) -> float:
-    return eur * rate
+def convert_eur_to_usd(eur: float, rate: Optional[float] = None) -> float:
+    return _eur_to_usd(eur, rate)
 
 
 def normalize_url(url: str) -> str:

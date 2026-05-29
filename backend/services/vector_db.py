@@ -27,13 +27,17 @@ from .postgres import PostgresManager
 # VECTOR DATABASE SETUP (PostgreSQL + pgvector)
 # ============================================================================
 
+EMBEDDING_DIMENSIONS = 1536
+
+
 def get_azure_embeddings() -> AzureOpenAIEmbeddings:
-    """Get Azure OpenAI embeddings function"""
+    """Azure embeddings pinned to text-embedding-3-small / 1536 (matches pgvector column)."""
     return AzureOpenAIEmbeddings(
         azure_endpoint=Config.AZURE_OPENAI_ENDPOINT,
         api_key=Config.AZURE_OPENAI_API_KEY,
         api_version=Config.AZURE_OPENAI_API_VERSION,
         azure_deployment=Config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
+        dimensions=EMBEDDING_DIMENSIONS,
     )
 
 
