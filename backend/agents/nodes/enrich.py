@@ -1,273 +1,185 @@
 """
-Node 3: Enrich
-Takes filtered brands and:
-  1. Calls Exa per brand to find pricing pages (suits price)
-  2. Extracts structured data from combined Exa content via LLM
-  3. Calls Google Places API for store count and addresses
+Node 3: Enrich (collapsed)
+
+Per brand:
+  1. Prefill from discovery text (email regex, price/HQ/stores heuristics)
+  2. Parallel Exa fetches only for still-missing fields (price + about + store-locator)
+  3. Single batched LLM structured extraction (discovery + all Exa content)
+  4. One batched LLM HQ knowledge fallback for brands without verified HQ
+  5. Google Places + merge/validate
 """
 
 import asyncio
 import json
 import logging
 import os
-from typing import List, Dict, Any, Union
+from typing import Any, Dict, List, Optional, Union
 
 from exa_py import Exa
-from models import ProspectorState, BrandLead
+
+from models import ProspectorState
+from services.currency import extraction_fx_rules_text
+from services.discovery_prefill import apply_prefill, prefill_from_discovery
 from services.google_places import enrich_with_places
+from services.location_enrichment import (
+    EXA_MAX_CONCURRENT,
+    CityContext,
+    batch_check_hq_cities_against_target,
+    city_in_text,
+    exa_hq_lookup,
+    exa_price_lookup,
+    exa_store_locator_lookup,
+    merge_store_data,
+    resolve_headquarters_via_llm_batch,
+    resolve_target_city_context,
+    validate_location_data,
+)
 from .utils import get_llm
 from .pipeline_timing import step_begin, step_end
 
 logger = logging.getLogger("node.enrich")
 
 ENRICH_BATCH_SIZE = 6
-EXA_PRICE_MAX_CONCURRENT = 5
-EXA_PRICE_MAX_CHARS = 5000
+DISCOVERY_SLICE = 10_000
 
 
 # ============================================================================
-# EXA: PRICE LOOKUP PER BRAND
+# EXA: parallel supplement (only missing fields)
 # ============================================================================
 
-async def _exa_price_lookup(
+def _needs_exa_price(brand: Dict) -> bool:
+    return brand.get("avg_suit_price_eur") is None and brand.get("price_range_min_eur") is None
+
+
+def _needs_exa_about(brand: Dict) -> bool:
+    return brand.get("headquarters_confidence") != "verified"
+
+
+def _needs_exa_stores(brand: Dict) -> bool:
+    return brand.get("_site_store_confidence") != "verified"
+
+
+async def _fetch_exa_supplement_for_brand(
     exa: Exa,
-    brand_name: str,
-    brand_url: str,
-    max_concurrent_sem: asyncio.Semaphore,
-) -> str:
-    """
-    Call Exa to find pricing information for a specific brand.
-    Searches for "{brand_name} suits price" and returns the text content.
-    """
-    async with max_concurrent_sem:
-        query = f"{brand_name} suits price"
-        try:
-            response = await asyncio.to_thread(
-                exa.search,
-                query,
-                num_results=3,
-                type="auto",
-                include_domains=[brand_url.split("//")[-1].split("/")[0].replace("www.", "")],
-                contents={"text": {"maxCharacters": EXA_PRICE_MAX_CHARS}},
-            )
-            texts = []
-            for result in response.results:
-                if hasattr(result, "text") and result.text:
-                    texts.append(result.text)
-            if texts:
-                combined = "\n---\n".join(texts)
-                logger.info("  Exa price for %s: %d chars from %d results",
-                            brand_name, len(combined), len(texts))
-                return combined
-        except Exception as e:
-            logger.warning("  Exa price lookup failed for %s: %s — trying broader search", brand_name, e)
+    brand: Dict,
+    sem: asyncio.Semaphore,
+) -> Dict[str, str]:
+    """Run price/about/store Exa searches in parallel for one brand."""
+    name = brand.get("name") or brand.get("brand_name") or brand.get("title", "")
+    url = brand.get("website_url") or brand.get("url", "")
 
-        # Fallback: broader search without domain restriction
-        try:
-            response = await asyncio.to_thread(
-                exa.search,
-                f"{brand_name} men's suits price collection",
-                num_results=2,
-                type="auto",
-                contents={"text": {"maxCharacters": EXA_PRICE_MAX_CHARS}},
-            )
-            texts = []
-            for result in response.results:
-                if hasattr(result, "text") and result.text:
-                    texts.append(result.text)
-            if texts:
-                combined = "\n---\n".join(texts)
-                logger.info("  Exa price (broad) for %s: %d chars", brand_name, len(combined))
-                return combined
-        except Exception as e2:
-            logger.warning("  Exa price broad search also failed for %s: %s", brand_name, e2)
+    async def _maybe(coro):
+        return await coro
 
-        return ""
+    tasks: Dict[str, Any] = {}
+    if _needs_exa_price(brand):
+        tasks["price"] = exa_price_lookup(exa, name, url, sem=sem)
+    if _needs_exa_about(brand):
+        tasks["about"] = exa_hq_lookup(exa, name, url, sem=sem)
+    if _needs_exa_stores(brand):
+        tasks["stores"] = exa_store_locator_lookup(exa, name, url, sem=sem)
+
+    out = {"price": "", "about": "", "stores": ""}
+    if not tasks:
+        return out
+
+    keys = list(tasks.keys())
+    results = await asyncio.gather(*[tasks[k] for k in keys], return_exceptions=True)
+    for key, result in zip(keys, results):
+        if isinstance(result, Exception):
+            logger.warning("Exa %s failed for %s: %s", key, name, result)
+            out[key] = ""
+        else:
+            out[key] = result or ""
+    return out
 
 
-async def _batch_exa_price_lookup(
-    brands: List[Dict],
-) -> List[str]:
-    """
-    Run Exa price lookups for all brands in parallel (with concurrency limit).
-    Returns list of price content strings, one per brand.
-    """
+async def _batch_fetch_exa_supplements(brands: List[Dict]) -> List[Dict[str, str]]:
     exa_key = os.environ.get("EXA_API_KEY")
     if not exa_key:
-        logger.warning("No EXA_API_KEY — skipping price lookup")
-        return [""] * len(brands)
+        logger.warning("No EXA_API_KEY — skipping supplemental Exa fetches")
+        return [{"price": "", "about": "", "stores": ""} for _ in brands]
 
     exa = Exa(api_key=exa_key)
-    sem = asyncio.Semaphore(EXA_PRICE_MAX_CONCURRENT)
-
-    tasks = [
-        _exa_price_lookup(
-            exa,
-            brand_name=b.get("brand_name", b.get("name", b.get("title", ""))),
-            brand_url=b.get("url", b.get("website_url", "")),
-            max_concurrent_sem=sem,
-        )
-        for b in brands
-    ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    price_texts = []
-    for r in results:
-        if isinstance(r, Exception):
-            logger.warning("Exa price task exception: %s", r)
-            price_texts.append("")
-        else:
-            price_texts.append(r or "")
-
-    return price_texts
+    sem = asyncio.Semaphore(EXA_MAX_CONCURRENT)
+    results = await asyncio.gather(
+        *[_fetch_exa_supplement_for_brand(exa, b, sem) for b in brands]
+    )
+    return list(results)
 
 
 # ============================================================================
-# EXA: EMAIL/CONTACT LOOKUP PER BRAND
+# LLM: unified structured extraction (single pass per batch)
 # ============================================================================
 
-async def _exa_email_lookup(
-    exa: Exa,
-    brand_name: str,
-    brand_url: str,
-    max_concurrent_sem: asyncio.Semaphore,
-) -> str:
-    """
-    Call Exa to find contact email for a specific brand.
-    Searches the brand's domain for contact pages.
-    """
-    import re
-    async with max_concurrent_sem:
-        domain = brand_url.split("//")[-1].split("/")[0].replace("www.", "")
-        query = f"{brand_name} contact email"
+def _apply_site_store_fields(brand: Dict, extracted: Dict) -> None:
+    addresses = extracted.get("site_store_addresses") or []
+    if isinstance(addresses, str):
         try:
-            response = await asyncio.to_thread(
-                exa.search,
-                query,
-                num_results=3,
-                type="auto",
-                include_domains=[domain],
-                contents={"text": {"maxCharacters": 3000}},
-            )
-            for result in response.results:
-                if hasattr(result, "text") and result.text:
-                    emails = re.findall(
-                        r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}',
-                        result.text
-                    )
-                    valid = [
-                        e for e in emails
-                        if not any(x in e.lower() for x in ["noreply", "no-reply", "unsubscribe", "mailer-daemon"])
-                        and not e.endswith(".png")
-                        and not e.endswith(".jpg")
-                    ]
-                    preferred = [e for e in valid if any(
-                        p in e.lower() for p in ["info@", "contact@", "hello@", "sales@", "enquir"]
-                    )]
-                    if preferred:
-                        return preferred[0]
-                    if valid:
-                        return valid[0]
-        except Exception as e:
-            logger.debug("  Exa email lookup failed for %s: %s", brand_name, e)
+            addresses = json.loads(addresses)
+        except Exception:
+            addresses = [addresses] if addresses else []
+    confidence = (extracted.get("site_store_confidence") or "unknown").lower()
+    count = extracted.get("site_store_count")
+    if confidence == "verified" and addresses:
+        brand["_site_store_addresses"] = list(addresses)
+        brand["_site_store_count"] = count if count is not None else len(addresses)
+        brand["_site_store_confidence"] = "verified"
+    elif confidence == "verified" and count:
+        brand["_site_store_addresses"] = []
+        brand["_site_store_count"] = int(count)
+        brand["_site_store_confidence"] = "verified"
+    else:
+        brand.setdefault("_site_store_addresses", [])
+        brand.setdefault("_site_store_count", None)
+        brand.setdefault("_site_store_confidence", "unknown")
 
-        # Fallback: broader search
-        try:
-            response = await asyncio.to_thread(
-                exa.search,
-                f"{brand_name} email contact us",
-                num_results=2,
-                type="auto",
-                contents={"text": {"maxCharacters": 2000}},
-            )
-            for result in response.results:
-                if hasattr(result, "text") and result.text:
-                    emails = re.findall(
-                        r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}',
-                        result.text
-                    )
-                    valid = [
-                        e for e in emails
-                        if not any(x in e.lower() for x in ["noreply", "no-reply", "unsubscribe", "mailer-daemon"])
-                        and not e.endswith(".png")
-                        and not e.endswith(".jpg")
-                    ]
-                    if valid:
-                        return valid[0]
-        except Exception as e2:
-            logger.debug("  Exa email broad search also failed for %s: %s", brand_name, e2)
-
-        return ""
-
-
-async def _batch_exa_email_lookup(brands: List[Dict]) -> List[str]:
-    """Run Exa email lookups for brands in parallel."""
-    exa_key = os.environ.get("EXA_API_KEY")
-    if not exa_key:
-        logger.warning("No EXA_API_KEY — skipping email lookup")
-        return [""] * len(brands)
-
-    exa = Exa(api_key=exa_key)
-    sem = asyncio.Semaphore(EXA_PRICE_MAX_CONCURRENT)
-
-    tasks = [
-        _exa_email_lookup(
-            exa,
-            brand_name=b.get("name", b.get("brand_name", "")),
-            brand_url=b.get("website_url", b.get("url", "")),
-            max_concurrent_sem=sem,
-        )
-        for b in brands
-    ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    emails = []
-    for r in results:
-        if isinstance(r, Exception):
-            logger.warning("Exa email task exception: %s", r)
-            emails.append("")
-        else:
-            emails.append(r or "")
-
-    return emails
-
-
-# ============================================================================
-# LLM: STRUCTURED DATA EXTRACTION
-# ============================================================================
 
 async def _extract_structured_batch(
     brands: List[Dict],
-    price_contents: List[str],
+    exa_contents: List[Dict[str, str]],
     target_city: str,
     target_country: str,
 ) -> List[Dict]:
     """
-    Use GPT-5.1 (deep model) to extract structured data.
-    Combines original Exa content + dedicated price lookup content.
+    One LLM call per batch: discovery + pricing + about + store-locator combined.
     """
     llm = get_llm(fast=False)
+    fx_rules = extraction_fx_rules_text()
 
-    candidates_block = "\n\n".join(
-        f"=== BRAND {i+1} ===\n"
-        f"URL: {b['url']}\n"
-        f"BRAND NAME (from filter): {b.get('brand_name', '')}\n"
-        f"GENERAL CONTENT:\n{(b.get('text', '') or b.get('highlights', ''))[:4000]}\n"
-        f"PRICING PAGE CONTENT:\n{(price_contents[i] if i < len(price_contents) else '')[:3000]}"
-        for i, b in enumerate(brands)
-    )
+    blocks = []
+    for i, b in enumerate(brands):
+        exa = exa_contents[i] if i < len(exa_contents) else {}
+        discovery = (b.get("text") or b.get("highlights") or "")[:DISCOVERY_SLICE]
+        prefill_note = ""
+        if b.get("contact_email"):
+            prefill_note += f"Prefill email (regex): {b['contact_email']}\n"
+        if b.get("headquarters_city") and b.get("headquarters_confidence") == "verified":
+            prefill_note += f"Prefill HQ (discovery): {b['headquarters_city']} (verified)\n"
+        if b.get("avg_suit_price_eur"):
+            prefill_note += f"Prefill price hint: €{b['avg_suit_price_eur']}\n"
+
+        blocks.append(
+            f"=== BRAND {i + 1} ===\n"
+            f"URL: {b.get('url') or b.get('website_url', '')}\n"
+            f"BRAND NAME (from filter): {b.get('brand_name') or b.get('name', '')}\n"
+            f"PREFILL (from discovery, trust if verified):\n{prefill_note or '(none)'}\n"
+            f"DISCOVERY CONTENT:\n{discovery}\n"
+            f"PRICING PAGE CONTENT:\n{(exa.get('price') or '')[:3000]}\n"
+            f"ABOUT/HQ PAGE CONTENT:\n{(exa.get('about') or '')[:3000]}\n"
+            f"STORE LOCATOR CONTENT:\n{(exa.get('stores') or '')[:3000]}"
+        )
 
     prompt = f"""You are a data analyst extracting structured information about menswear brands for a Portuguese suit manufacturer (Confeções Lança).
 
 CITY: {target_city}
 COUNTRY: {target_country}
 
-For each brand below, extract structured data from BOTH the general content and pricing page content.
-The PRICING PAGE CONTENT comes directly from the brand's website — it contains real product prices.
+For each brand, use ALL content sections below (discovery + pricing + about + store locator).
 If information is not available, use null.
 
 BRANDS ({len(brands)} total):
-{candidates_block}
+{chr(10).join(blocks)}
 
 TASK: Extract structured data for each brand.
 Return ONLY a JSON array with one object per brand, in SAME order:
@@ -275,7 +187,8 @@ Return ONLY a JSON array with one object per brand, in SAME order:
   "name": "Brand Name",
   "website_url": "https://...",
   "origin_country": "Country where brand is headquartered",
-  "headquarters_city": "City where brand HQ is located (from content or inferred)",
+  "headquarters_city": "City where brand HQ is located (explicit evidence only) or null",
+  "headquarters_confidence": "verified" or "unknown",
   "avg_suit_price_eur": 800,
   "price_range_min_eur": 500,
   "price_range_max_eur": 1200,
@@ -283,32 +196,38 @@ Return ONLY a JSON array with one object per brand, in SAME order:
   "wool_percentage": "100%" or "mixed" or null,
   "brand_style": "Heritage/Premium/Contemporary/Luxury/Traditional",
   "business_model": "Retail/Bespoke/Multi-brand/Online+Retail",
-  "company_overview": "2-3 sentences describing the brand, what they sell, and their positioning",
+  "company_overview": "2-3 sentences describing the brand",
   "contact_email": "email found in content or null",
-  "clothing_types": ["suits", "blazers", "trousers"],
+  "site_store_addresses": ["full address or city strings explicitly listed"],
+  "site_store_count": 5,
+  "site_store_confidence": "verified" or "unknown",
+  "clothing_types": ["suits", "blazers"],
   "target_gender": "men" or "unisex" or "women",
   "is_chain": true/false/null,
   "bespoke_only": true/false/null
 }}]
 
 PRICING RULES:
-- PRIORITIZE prices from the PRICING PAGE CONTENT — these are real prices from the brand's site
-- Convert all prices to EUR. Use approximate rates: £1 = €1.17, $1 = €0.93, CHF 1 = €1.05
-- If only one price is found, use it as both min and max
-- If no price found, set all price fields to null
-- avg_suit_price_eur = midpoint of min and max
+- PRIORITIZE prices from PRICING PAGE CONTENT
+- {fx_rules}
+- If only one price found, use it as both min and max; if none, null
+- avg_suit_price_eur = midpoint of min and max when both exist
 
 HEADQUARTERS RULES:
-- headquarters_city = the city where the brand's HEAD OFFICE / HQ is located
-- Look for mentions like "based in", "headquartered in", "founded in", address in footer/about
-- If the brand only has ONE store, that city is likely the HQ city
-- If unclear, use null
+- ONLY extract HQ city if EXPLICITLY stated (based in, headquartered, registered office, footer HQ)
+- NEVER guess from store locations or target city {target_city}
+- If unclear: null and headquarters_confidence "unknown"
+- If explicit: headquarters_confidence "verified"
+
+STORE RULES:
+- site_store_addresses: ONLY stores explicitly listed in STORE LOCATOR or discovery
+- site_store_count: only if explicitly stated; else null
+- site_store_confidence: "verified" only when explicit list or count in content; else "unknown"
+- NEVER invent stores
 
 EMAIL RULES:
-- Look for contact/info/sales email addresses in the content
-- Prefer: sales@, info@, contact@, hello@ (general business emails)
-- Do NOT use personal emails or noreply emails
-- If not found, use null
+- Prefer sales@, info@, contact@, hello@ — no noreply/personal
+- Discovery prefill email is valid if present in content
 
 Return ONLY the JSON array."""
 
@@ -318,24 +237,33 @@ Return ONLY the JSON array."""
         results = json.loads(raw)
         if not isinstance(results, list):
             results = [results]
+        for r in results:
+            if not r.get("headquarters_city"):
+                r["headquarters_confidence"] = "unknown"
+            elif r.get("headquarters_confidence") not in ("verified", "llm_knowledge"):
+                r["headquarters_confidence"] = "verified"
         return results
     except Exception as e:
-        logger.warning("Enrich batch LLM error: %s — returning minimal data", e)
+        logger.warning("Unified enrich LLM error: %s — returning minimal data", e)
         return [
             {
                 "name": b.get("brand_name", b.get("title", "")),
-                "website_url": b["url"],
+                "website_url": b.get("url", ""),
                 "origin_country": None,
-                "headquarters_city": None,
-                "avg_suit_price_eur": None,
-                "price_range_min_eur": None,
-                "price_range_max_eur": None,
+                "headquarters_city": b.get("headquarters_city"),
+                "headquarters_confidence": b.get("headquarters_confidence", "unknown"),
+                "avg_suit_price_eur": b.get("avg_suit_price_eur"),
+                "price_range_min_eur": b.get("price_range_min_eur"),
+                "price_range_max_eur": b.get("price_range_max_eur"),
                 "made_to_measure": None,
                 "wool_percentage": None,
                 "brand_style": None,
                 "business_model": None,
                 "company_overview": None,
-                "contact_email": None,
+                "contact_email": b.get("contact_email"),
+                "site_store_addresses": b.get("_site_store_addresses", []),
+                "site_store_count": b.get("_site_store_count"),
+                "site_store_confidence": b.get("_site_store_confidence", "unknown"),
                 "clothing_types": [],
                 "target_gender": None,
                 "is_chain": None,
@@ -345,44 +273,122 @@ Return ONLY the JSON array."""
         ]
 
 
+def _merge_extracted_into_brand(brand: Dict, extracted: Dict, source_row: Dict) -> Dict:
+    """Merge LLM output; never downgrade verified discovery prefill."""
+    out = dict(brand)
+    url = source_row.get("url") or source_row.get("website_url", "")
+    out["website_url"] = extracted.get("website_url") or url
+    out["name"] = extracted.get("name") or source_row.get("brand_name") or source_row.get("title", "")
+
+    for key in (
+        "origin_country", "avg_suit_price_eur", "price_range_min_eur", "price_range_max_eur",
+        "made_to_measure", "wool_percentage", "brand_style", "business_model",
+        "company_overview", "clothing_types", "target_gender", "is_chain", "bespoke_only",
+    ):
+        val = extracted.get(key)
+        if val is not None:
+            out[key] = val
+
+    if not out.get("contact_email") and extracted.get("contact_email"):
+        out["contact_email"] = extracted["contact_email"]
+
+    hq_conf_existing = brand.get("headquarters_confidence")
+    if hq_conf_existing == "verified" and brand.get("headquarters_city"):
+        out["headquarters_city"] = brand["headquarters_city"]
+        out["headquarters_confidence"] = "verified"
+    else:
+        out["headquarters_city"] = extracted.get("headquarters_city")
+        out["headquarters_confidence"] = extracted.get("headquarters_confidence", "unknown")
+
+    _apply_site_store_fields(out, extracted)
+    if brand.get("_site_store_confidence") == "verified" and brand.get("_site_store_addresses"):
+        out["_site_store_addresses"] = brand["_site_store_addresses"]
+        out["_site_store_count"] = brand.get("_site_store_count")
+        out["_site_store_confidence"] = "verified"
+
+    return out
+
+
 # ============================================================================
-# GOOGLE PLACES ENRICHMENT
+# Google Places + merge (unchanged behaviour)
 # ============================================================================
 
 async def _enrich_with_google_places(
     brands_data: List[Dict],
-    target_city: str,
+    city_ctx: CityContext,
     max_concurrent: int = 5,
 ) -> List[Dict]:
-    """Call Google Places API for each brand to get store count and addresses."""
     sem = asyncio.Semaphore(max_concurrent)
+    target_city = city_ctx.query
 
     async def enrich_one(brand: Dict) -> Dict:
         async with sem:
             brand_name = brand.get("name", "")
-            country = brand.get("origin_country", "")
+            country = brand.get("origin_country", "") or city_ctx.country or ""
             if not brand_name:
                 return brand
-
             try:
                 places_data = await enrich_with_places(
                     brand_name=brand_name,
                     city=target_city,
-                    country=country or "",
+                    country=country,
                     website_url=brand.get("website_url", ""),
                 )
-                brand["store_count"] = places_data.get("places_store_count", 0)
-                brand["store_locations"] = places_data.get("places_locations", [])
-                brand["headquarters_address"] = places_data.get("places_address")
-                if places_data.get("places_phone"):
-                    brand["contact_phone"] = places_data["places_phone"]
+                local_addr = places_data.get("local_store_address")
+                if local_addr and not city_in_text(city_ctx, local_addr):
+                    local_addr = None
+                brand["local_store_address"] = local_addr
+                brand["_places_store_count"] = places_data.get("places_store_count", 0)
+                places_locs = places_data.get("places_locations", [])
+                brand["_places_locations"] = [
+                    addr for addr in places_locs if city_in_text(city_ctx, addr or "")
+                ]
+                phone = places_data.get("local_store_phone") or places_data.get("places_phone")
+                if phone and not brand.get("contact_phone"):
+                    brand["contact_phone"] = phone
             except Exception as e:
                 logger.warning("Google Places error for %s: %s", brand_name, e)
-
+                brand.setdefault("_places_store_count", 0)
+                brand.setdefault("_places_locations", [])
             return brand
 
-    results = await asyncio.gather(*(enrich_one(b) for b in brands_data))
-    return list(results)
+    return list(await asyncio.gather(*(enrich_one(b) for b in brands_data)))
+
+
+def _merge_and_validate_locations(brands: List[Dict], city_ctx: CityContext) -> List[Dict]:
+    for brand in brands:
+        merged = merge_store_data(
+            site_addresses=brand.pop("_site_store_addresses", []),
+            site_count=brand.pop("_site_store_count", None),
+            site_confidence=brand.pop("_site_store_confidence", "unknown"),
+            places_addresses=brand.pop("_places_locations", []),
+            places_count=brand.pop("_places_store_count", 0),
+        )
+        brand["store_count"] = merged["store_count"]
+        brand["store_locations"] = merged["store_locations"]
+        brand["store_count_confidence"] = merged["store_count_confidence"]
+        validate_location_data(brand, city_ctx)
+        brand.pop("_places_store_count", None)
+        brand.pop("_places_locations", None)
+    return brands
+
+
+def _prepare_working_brands(filtered: List[Dict]) -> List[Dict]:
+    """Normalize filter output into enrich working rows."""
+    rows = []
+    for b in filtered:
+        rows.append({
+            "url": b.get("url", b.get("website_url", "")),
+            "website_url": b.get("url", b.get("website_url", "")),
+            "brand_name": b.get("brand_name", b.get("name", b.get("title", ""))),
+            "title": b.get("title", ""),
+            "text": b.get("text", ""),
+            "highlights": b.get("highlights", ""),
+            "site_store_confidence": "unknown",
+            "_site_store_addresses": [],
+            "_site_store_count": None,
+        })
+    return rows
 
 
 # ============================================================================
@@ -390,111 +396,129 @@ async def _enrich_with_google_places(
 # ============================================================================
 
 async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Node 3: Enrich.
-    1. Exa price lookup per brand (parallel)
-    2. LLM extracts structured data from combined content
-    3. Google Places for store count and addresses
-    """
     target_city = state.get("target_city") if isinstance(state, dict) else getattr(state, "target_city", "")
     target_country = state.get("target_country") if isinstance(state, dict) else getattr(state, "target_country", "")
     filtered_brands = state.get("filtered_brands") if isinstance(state, dict) else getattr(state, "filtered_brands", [])
 
-    t_node = step_begin(logger, "N3_ENRICH", target_city,
-                        f"Enriquecer {len(filtered_brands)} marcas: Exa preços + LLM + Google Places.")
-
+    t_node = step_begin(
+        logger, "N3_ENRICH", target_city,
+        f"Enriquecer {len(filtered_brands)} marcas (prefill → Exa paralelo → LLM único → HQ batch).",
+    )
     progress = [f"📊 Enriquecendo {len(filtered_brands)} marcas..."]
 
     if not filtered_brands:
-        step_end(logger, "N3_ENRICH", target_city, t_node, "sem marcas para enriquecer")
-        return {
-            "enriched_brands": [],
-            "progress": progress + ["⚠️ Nenhuma marca para enriquecer"],
-        }
+        step_end(logger, "N3_ENRICH", target_city, t_node, "sem marcas")
+        return {"enriched_brands": [], "progress": progress + ["⚠️ Nenhuma marca para enriquecer"]}
 
-    # Phase 1: Exa price lookup (parallel, all brands at once)
-    t_prices = step_begin(logger, "N3a_EXA_PRICES", target_city,
-                          f"Exa price lookup para {len(filtered_brands)} marcas.")
-    progress.append(f"💰 Pesquisando preços no Exa para {len(filtered_brands)} marcas...")
+    city_ctx = await resolve_target_city_context(target_city)
+    if not target_country and city_ctx.country:
+        target_country = city_ctx.country
 
-    price_contents = await _batch_exa_price_lookup(filtered_brands)
+    working = _prepare_working_brands(filtered_brands)
 
-    brands_with_prices = sum(1 for p in price_contents if p)
-    step_end(logger, "N3a_EXA_PRICES", target_city, t_prices,
-             brands_with_prices=brands_with_prices,
-             brands_without=len(filtered_brands) - brands_with_prices)
-    progress.append(f"✅ Preços encontrados: {brands_with_prices}/{len(filtered_brands)} marcas")
+    # N3a: discovery prefill (no LLM)
+    t_prefill = step_begin(logger, "N3a_DISCOVERY_PREFILL", target_city,
+                           f"Prefill regex/heuristics para {len(working)} marcas.")
+    prefilled = 0
+    for brand in working:
+        pre = prefill_from_discovery(brand)
+        if pre:
+            apply_prefill(brand, pre)
+            if pre.get("contact_email"):
+                brand["contact_email"] = pre["contact_email"]
+            if pre.get("site_store_confidence") == "verified":
+                brand["_site_store_addresses"] = pre.get("site_store_addresses", [])
+                brand["_site_store_count"] = pre.get("site_store_count")
+                brand["_site_store_confidence"] = "verified"
+            prefilled += 1
+    step_end(logger, "N3a_DISCOVERY_PREFILL", target_city, t_prefill, brands_with_prefill=prefilled)
+    progress.append(f"✅ Prefill discovery: {prefilled}/{len(working)} marcas com dados iniciais")
 
-    # Phase 2: LLM structured extraction in batches
-    t_llm = step_begin(logger, "N3b_LLM_EXTRACT", target_city,
-                        "Extrair dados estruturados via LLM (com conteúdo de preços).")
-    all_structured = []
+    # N3b: parallel Exa only for missing fields
+    needs_price = sum(1 for b in working if _needs_exa_price(b))
+    needs_about = sum(1 for b in working if _needs_exa_about(b))
+    needs_stores = sum(1 for b in working if _needs_exa_stores(b))
+    t_exa = step_begin(
+        logger, "N3b_EXA_SUPPLEMENT", target_city,
+        f"Exa paralelo: price={needs_price} about={needs_about} stores={needs_stores}.",
+    )
+    progress.append(
+        f"🔎 Exa suplementar: preços={needs_price}, sede={needs_about}, lojas={needs_stores}"
+    )
+    exa_contents = await _batch_fetch_exa_supplements(working)
+    fetched = sum(1 for e in exa_contents if any(e.values()))
+    step_end(logger, "N3b_EXA_SUPPLEMENT", target_city, t_exa, brands_with_exa=fetched)
+    progress.append(f"✅ Exa suplementar: conteúdo extra em {fetched}/{len(working)} marcas")
 
-    for batch_start in range(0, len(filtered_brands), ENRICH_BATCH_SIZE):
-        batch = filtered_brands[batch_start:batch_start + ENRICH_BATCH_SIZE]
-        batch_prices = price_contents[batch_start:batch_start + ENRICH_BATCH_SIZE]
+    # N3c: unified LLM extraction (batched)
+    t_llm = step_begin(logger, "N3c_LLM_UNIFIED", target_city,
+                       "Extracção estruturada única (discovery + Exa).")
+    all_structured: List[Dict] = []
+    for batch_start in range(0, len(working), ENRICH_BATCH_SIZE):
+        batch = working[batch_start:batch_start + ENRICH_BATCH_SIZE]
+        batch_exa = exa_contents[batch_start:batch_start + ENRICH_BATCH_SIZE]
         batch_num = (batch_start // ENRICH_BATCH_SIZE) + 1
-        total_batches = (len(filtered_brands) + ENRICH_BATCH_SIZE - 1) // ENRICH_BATCH_SIZE
-
-        logger.info("Enrich LLM batch %d/%d (%d brands)", batch_num, total_batches, len(batch))
-        progress.append(f"  🔬 LLM batch {batch_num}/{total_batches}")
-
-        batch_results = await _extract_structured_batch(batch, batch_prices, target_city, target_country)
-
-        for i, result in enumerate(batch_results):
+        total_batches = (len(working) + ENRICH_BATCH_SIZE - 1) // ENRICH_BATCH_SIZE
+        progress.append(f"  🔬 LLM unified batch {batch_num}/{total_batches}")
+        extracted = await _extract_structured_batch(batch, batch_exa, target_city, target_country)
+        for i, row in enumerate(extracted):
             if i < len(batch):
-                if not result.get("website_url"):
-                    result["website_url"] = batch[i]["url"]
-                if not result.get("name"):
-                    result["name"] = batch[i].get("brand_name", batch[i].get("title", ""))
+                merged = _merge_extracted_into_brand(batch[i], row, batch[i])
+                all_structured.append(merged)
+    step_end(logger, "N3c_LLM_UNIFIED", target_city, t_llm, brands=len(all_structured))
+    progress.append(f"✅ Extracção única: {len(all_structured)} marcas")
 
-        all_structured.extend(batch_results)
+    # N3d: batched HQ knowledge fallback (no per-brand Exa+LLM HQ pass)
+    needing_hq = [
+        b for b in all_structured
+        if b.get("headquarters_confidence") != "verified" and not b.get("headquarters_city")
+    ]
+    t_hq = step_begin(logger, "N3d_HQ_BATCH_LLM", target_city,
+                      f"HQ knowledge batch para {len(needing_hq)} marcas.")
+    if needing_hq:
+        progress.append(f"🏢 HQ knowledge batch: {len(needing_hq)} marcas...")
+        await resolve_headquarters_via_llm_batch(needing_hq)
+    hq_resolved = sum(1 for b in all_structured if b.get("headquarters_city"))
+    city_ctx = await batch_check_hq_cities_against_target(
+        city_ctx,
+        [b["headquarters_city"] for b in all_structured if b.get("headquarters_city")],
+    )
+    step_end(logger, "N3d_HQ_BATCH_LLM", target_city, t_hq, hq_resolved=hq_resolved)
+    progress.append(f"✅ Sede: {hq_resolved}/{len(all_structured)} marcas")
 
-    step_end(logger, "N3b_LLM_EXTRACT", target_city, t_llm,
-             brands_extracted=len(all_structured))
-    progress.append(f"✅ Dados extraídos para {len(all_structured)} marcas")
+    # N3e: Google Places
+    t_places = step_begin(logger, "N3e_GOOGLE_PLACES", target_city,
+                          f"Google Places para {len(all_structured)} marcas.")
+    progress.append(f"📍 Google Places para {len(all_structured)} marcas...")
+    all_structured = await _enrich_with_google_places(all_structured, city_ctx)
+    places_with = sum(
+        1 for b in all_structured
+        if b.get("_places_store_count", 0) > 0 or b.get("local_store_address")
+    )
+    step_end(logger, "N3e_GOOGLE_PLACES", target_city, t_places, with_places=places_with)
+    progress.append(f"✅ Google Places: {places_with}/{len(all_structured)}")
 
-    # Phase 3: Exa email lookup for brands without email
-    brands_without_email = [b for b in all_structured if not b.get("contact_email")]
-    if brands_without_email:
-        t_email = step_begin(logger, "N3c_EXA_EMAIL", target_city,
-                             f"Exa email lookup para {len(brands_without_email)} marcas sem email.")
-        progress.append(f"📧 Pesquisando emails para {len(brands_without_email)} marcas...")
-
-        email_results = await _batch_exa_email_lookup(brands_without_email)
-        for brand_data, email in zip(brands_without_email, email_results):
-            if email:
-                brand_data["contact_email"] = email
-
-        found_emails = sum(1 for e in email_results if e)
-        step_end(logger, "N3c_EXA_EMAIL", target_city, t_email,
-                 found=found_emails, total=len(brands_without_email))
-        progress.append(f"✅ Emails encontrados: {found_emails}/{len(brands_without_email)}")
-
-    # Phase 4: Google Places enrichment
-    t_places = step_begin(logger, "N3d_GOOGLE_PLACES", target_city,
-                          f"Google Places API para {len(all_structured)} marcas.")
-    progress.append(f"📍 Chamando Google Places para {len(all_structured)} marcas...")
-
-    enriched = await _enrich_with_google_places(all_structured, target_city)
-
-    places_with_data = sum(1 for b in enriched if b.get("store_count", 0) > 0)
-    step_end(logger, "N3d_GOOGLE_PLACES", target_city, t_places,
-             brands_with_places=places_with_data)
-    progress.append(f"✅ Google Places: {places_with_data}/{len(enriched)} com dados de lojas")
+    # N3f: merge + validate
+    t_merge = step_begin(logger, "N3f_MERGE_VALIDATE", target_city, "Merge lojas + validar.")
+    enriched = _merge_and_validate_locations(all_structured, city_ctx)
+    step_end(logger, "N3f_MERGE_VALIDATE", target_city, t_merge, validated=len(enriched))
+    progress.append(f"✅ Localização validada: {len(enriched)} marcas")
 
     for b in enriched:
-        logger.info("  Enriched: %s | €%s | %d stores | MTM=%s | Wool=%s",
-                     b.get("name", "?"),
-                     b.get("avg_suit_price_eur", "?"),
-                     b.get("store_count", 0),
-                     b.get("made_to_measure", "?"),
-                     b.get("wool_percentage", "?"))
+        logger.info(
+            "  Enriched: %s | €%s | %d stores (%s) | HQ=%s (%s) | presence=%s",
+            b.get("name", "?"),
+            b.get("avg_suit_price_eur", "?"),
+            b.get("store_count", 0),
+            b.get("store_count_confidence", "?"),
+            b.get("headquarters_city", "?"),
+            b.get("headquarters_confidence", "?"),
+            b.get("city_presence_type", "?"),
+        )
 
-    step_end(logger, "N3_ENRICH", target_city, t_node,
-             total_enriched=len(enriched))
-
+    step_end(logger, "N3_ENRICH", target_city, t_node, total=len(enriched))
     return {
         "enriched_brands": enriched,
+        "target_city_context": city_ctx.to_dict(),
         "progress": progress,
     }
