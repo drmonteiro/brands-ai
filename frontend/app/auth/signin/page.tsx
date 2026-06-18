@@ -30,9 +30,11 @@ function SignInInner() {
     e.preventDefault();
     setError(null);
     setLoadingAgent(true);
+    const trimmedUser = username.trim();
+    const trimmedPass = password.trim();
     const res = await signIn("external-agent", {
-      username,
-      password,
+      username: trimmedUser,
+      password: trimmedPass,
       redirect: false,
       callbackUrl,
     });
@@ -40,7 +42,13 @@ function SignInInner() {
     if (res?.ok) {
       router.push(callbackUrl);
     } else {
-      setError("Credenciais inválidas. Verifique o utilizador e a palavra-passe.");
+      const detail =
+        res?.error === "CredentialsSignin"
+          ? "Utilizador ou palavra-passe incorretos."
+          : res?.error
+            ? `Erro de autenticação: ${res.error}`
+            : "Não foi possível iniciar sessão. Reinicie o frontend (npm run dev) se acabou de alterar o .env.local.";
+      setError(detail);
     }
   };
 
