@@ -89,7 +89,7 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
     t_node = step_begin(logger, "N2_FILTER", target_city,
                         f"Filtrar {len(raw_results)} candidatos — manter só marcas de fatos de homem.")
 
-    progress = [f"🔍 Filtrando {len(raw_results)} candidatos..."]
+    progress = [f"🧹 A filtrar {len(raw_results)} marcas — só fatos e alfaiataria masculina…"]
 
     if not raw_results:
         step_end(logger, "N2_FILTER", target_city, t_node, "sem candidatos")
@@ -106,7 +106,6 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
         total_batches = (len(raw_results) + FILTER_BATCH_SIZE - 1) // FILTER_BATCH_SIZE
 
         logger.info("Filter batch %d/%d (%d candidates)", batch_num, total_batches, len(batch))
-        progress.append(f"  📋 Batch {batch_num}/{total_batches} ({len(batch)} candidatos)")
 
         batch_results = await _filter_batch(batch, target_city)
         all_filter_results.extend(batch_results)
@@ -133,7 +132,7 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
             removed += 1
             logger.info("  REMOVED: %s — %s", raw_results[i]["url"], classification.get("reason", ""))
 
-    progress.append(f"✅ Filtragem completa: {kept} marcas mantidas, {removed} removidas")
+    progress.append(f"✅ {kept} marcas relevantes mantidas ({removed} fora do perfil)")
     logger.info("Filter result: %d kept, %d removed out of %d total",
                 kept, removed, len(raw_results))
 

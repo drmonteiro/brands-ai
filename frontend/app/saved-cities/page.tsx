@@ -18,8 +18,23 @@ import { toast } from "sonner";
 import { BrandCard } from "@/components/BrandCard";
 import { FilterPanel, ProspectFilters } from "@/components/FilterPanel";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { BrandLead } from "@/lib/types";
 import { apiUrl } from "@/lib/apiBase";
+
+const CITIES_CACHE_KEY = "lanca_cities_cache_v1";
+
+function readCitiesCache(): CityData[] | null {
+    if (typeof window === "undefined") return null;
+    try {
+        const raw = sessionStorage.getItem(CITIES_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+}
 
 interface CityData {
     city: string;
@@ -32,6 +47,8 @@ interface CityData {
 }
 
 export default function SavedCitiesPage() {
+    // SSR and first client paint must match (no sessionStorage in initial state).
+    // Cache is applied in useEffect after hydration to avoid mismatch errors.
     const [savedCities, setSavedCities] = useState<CityData[]>([]);
     const [prospects, setProspects] = useState<BrandLead[]>([]);
     const [selectedCity, setSelectedCity] = useState<string | null>(null);
@@ -40,7 +57,14 @@ export default function SavedCitiesPage() {
     const [activeFilters, setActiveFilters] = useState<ProspectFilters>({});
     const [cityToDelete, setCityToDelete] = useState<string | null>(null);
 
-    useEffect(() => { fetchCities(); }, []);
+    useEffect(() => {
+        const cached = readCitiesCache();
+        if (cached?.length) {
+            setSavedCities(cached);
+            setIsLoadingCities(false);
+        }
+        fetchCities();
+    }, []);
 
     useEffect(() => {
         if (!selectedCity) {
@@ -80,22 +104,34 @@ export default function SavedCitiesPage() {
     }, [selectedCity, activeFilters]);
 
     const fetchCities = async () => {
-        setIsLoadingCities(true);
+        const hasCache =
+            savedCities.length > 0 || (readCitiesCache()?.length ?? 0) > 0;
+        // With cached data we revalidate silently in the background.
+        if (!hasCache) setIsLoadingCities(true);
         try {
             const response = await fetch(apiUrl("/api/cities"));
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
-            setSavedCities(data.cities || []);
+            const cities: CityData[] = data.cities || [];
+            setSavedCities(cities);
+            try { sessionStorage.setItem(CITIES_CACHE_KEY, JSON.stringify(cities)); } catch { /* ignore */ }
         } catch (e) {
             console.error("[saved-cities] cities fetch failed:", e);
-            toast.error("Não foi possível carregar as cidades guardadas.");
-            setSavedCities([]);
+            if (!hasCache) {
+                toast.error("Não foi possível carregar as cidades guardadas.");
+                setSavedCities([]);
+            }
         } finally {
             setIsLoadingCities(false);
         }
     };
 
     const handleSendEmail = async (brandName: string, brandData: any) => {
+        const contactEmail = brandData?.contact_email || brandData?.contactEmail;
+        if (!contactEmail) {
+            toast.error(`${brandName} não tem email de contacto disponível.`);
+            return false;
+        }
         try {
             const response = await fetch(apiUrl("/api/email/draft"), {
                 method: "POST",
@@ -105,6 +141,9 @@ export default function SavedCitiesPage() {
             if (response.ok) {
                 const data = await response.json();
                 if (data.mailto) { window.location.href = data.mailto; return true; }
+            } else {
+                const err = await response.json().catch(() => null);
+                toast.error(err?.detail || "Não foi possível gerar a proposta.");
             }
             return false;
         } catch { return false; }
@@ -164,7 +203,7 @@ export default function SavedCitiesPage() {
                 {/* Panel Header */}
                 <div className="h-16 px-5 flex items-center border-b border-border">
                     <div>
-                        <h2 className="text-[13px] font-semibold text-foreground tracking-tight">Cidades Guardadas</h2>
+                        <h2 className="text-[13px] font-semibold text-foreground tracking-tight">Cidades guardadas</h2>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
                             {isLoadingCities ? "A carregar..." : `${safeCities.length} cidades · ${totalProspectsCount} marcas`}
                         </p>
@@ -174,8 +213,16 @@ export default function SavedCitiesPage() {
                 {/* City List */}
                 <div className="flex-1 overflow-y-auto p-2">
                     {isLoadingCities ? (
-                        <div className="flex items-center justify-center py-16">
-                            <RefreshCw className="h-4 w-4 text-muted-foreground/30 animate-spin" />
+                        <div className="space-y-1.5 p-1">
+                            {Array.from({ length: 7 }).map((_, i) => (
+                                <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+                                    <Skeleton className="h-8 w-8 rounded-md" />
+                                    <div className="flex-1 space-y-1.5">
+                                        <Skeleton className="h-3 w-24" />
+                                        <Skeleton className="h-2.5 w-16" />
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     ) : safeCities.length === 0 ? (
                         <div className="text-center py-16 px-4">

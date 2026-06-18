@@ -34,6 +34,7 @@ from services.location_enrichment import (
     CityContext,
     batch_check_hq_cities_against_target,
     city_in_text,
+    exa_contact_email_lookup,
     exa_hq_lookup,
     exa_price_lookup,
     exa_store_locator_lookup,
@@ -69,12 +70,16 @@ def _needs_exa_stores(brand: Dict) -> bool:
     return brand.get("_site_store_confidence") != "verified"
 
 
+def _needs_exa_contact(brand: Dict) -> bool:
+    return not (brand.get("contact_email") or "").strip()
+
+
 async def _fetch_exa_supplement_for_brand(
     exa: Exa,
     brand: Dict,
     sem: asyncio.Semaphore,
 ) -> Dict[str, str]:
-    """Run price/about/store Exa searches in parallel for one brand."""
+    """Run price/about/store/contact Exa searches in parallel for one brand."""
     name = brand.get("name") or brand.get("brand_name") or brand.get("title", "")
     url = brand.get("website_url") or brand.get("url", "")
 
@@ -88,8 +93,10 @@ async def _fetch_exa_supplement_for_brand(
         tasks["about"] = exa_hq_lookup(exa, name, url, sem=sem)
     if _needs_exa_stores(brand):
         tasks["stores"] = exa_store_locator_lookup(exa, name, url, sem=sem)
+    if _needs_exa_contact(brand):
+        tasks["contact"] = exa_contact_email_lookup(exa, name, url, sem=sem)
 
-    out = {"price": "", "about": "", "stores": ""}
+    out = {"price": "", "about": "", "stores": "", "contact": ""}
     if not tasks:
         return out
 
@@ -108,7 +115,7 @@ async def _batch_fetch_exa_supplements(brands: List[Dict]) -> List[Dict[str, str
     exa_key = os.environ.get("EXA_API_KEY")
     if not exa_key:
         logger.warning("No EXA_API_KEY — skipping supplemental Exa fetches")
-        return [{"price": "", "about": "", "stores": ""} for _ in brands]
+        return [{"price": "", "about": "", "stores": "", "contact": ""} for _ in brands]
 
     exa = Exa(api_key=exa_key)
     sem = asyncio.Semaphore(EXA_MAX_CONCURRENT)
@@ -164,11 +171,14 @@ async def _extract_structured_batch(
         prefill_note = ""
         if b.get("contact_email"):
             prefill_note += f"Prefill email (regex): {b['contact_email']}\n"
+        if b.get("contact_linkedin"):
+            prefill_note += f"Prefill LinkedIn (regex): {b['contact_linkedin']}\n"
         if b.get("headquarters_city") and b.get("headquarters_confidence") == "verified":
             prefill_note += f"Prefill HQ (discovery): {b['headquarters_city']} (verified)\n"
         if b.get("avg_suit_price_eur"):
             prefill_note += f"Prefill price hint: €{b['avg_suit_price_eur']}\n"
 
+        contact_content = (exa.get("contact") or "")[:3000]
         blocks.append(
             f"=== BRAND {i + 1} ===\n"
             f"URL: {b.get('url') or b.get('website_url', '')}\n"
@@ -177,7 +187,8 @@ async def _extract_structured_batch(
             f"DISCOVERY CONTENT:\n{discovery}\n"
             f"PRICING PAGE CONTENT:\n{(exa.get('price') or '')[:3000]}\n"
             f"ABOUT/HQ PAGE CONTENT:\n{(exa.get('about') or '')[:3000]}\n"
-            f"STORE LOCATOR CONTENT:\n{(exa.get('stores') or '')[:3000]}"
+            f"STORE LOCATOR CONTENT:\n{(exa.get('stores') or '')[:3000]}\n"
+            f"CONTACT PAGE CONTENT:\n{contact_content}"
         )
 
     prompt = f"""You are a data analyst extracting structured information about menswear brands for a Portuguese suit manufacturer (Confeções Lança).
@@ -207,7 +218,11 @@ Return ONLY a JSON array with one object per brand, in SAME order:
   "brand_style": "Heritage/Premium/Contemporary/Luxury/Traditional",
   "business_model": "Retail/Bespoke/Multi-brand/Online+Retail",
   "company_overview": "2-3 sentences describing the brand",
+  "contact_name": "decision-maker or shop owner name if explicit, else null",
+  "contact_role": "role/title if explicit, else null",
   "contact_email": "email found in content or null",
+  "contact_phone": "phone with country code if explicit, else null",
+  "contact_linkedin": "full https://linkedin.com/in/... or /company/... URL if explicit, else null",
   "site_store_addresses": ["full address or city strings explicitly listed"],
   "site_store_count": 5,
   "site_store_confidence": "verified" or "unknown",
@@ -238,6 +253,15 @@ STORE RULES:
 EMAIL RULES:
 - Prefer sales@, info@, contact@, hello@ — no noreply/personal
 - Discovery prefill email is valid if present in content
+
+CONTACT RULES (target a real decision-maker for a first B2B approach):
+- contact_name / contact_role: prefer the most senior person explicitly named — owner, founder, CEO,
+  managing director, head of buying/purchasing, head of menswear, or store/boutique manager.
+  Only use names explicitly present in the content; never invent.
+- contact_linkedin: ONLY full LinkedIn URLs found in content (linkedin.com/in/ or /company/)
+- STRONGLY prefer the personal /in/ profile of that senior contact over the /company/ page.
+  Only fall back to /company/ when no personal profile is present.
+- Never invent LinkedIn profiles, names, roles, or emails
 
 Return ONLY the JSON array."""
 
@@ -271,6 +295,10 @@ Return ONLY the JSON array."""
                 "business_model": None,
                 "company_overview": None,
                 "contact_email": b.get("contact_email"),
+                "contact_linkedin": b.get("contact_linkedin"),
+                "contact_name": b.get("contact_name"),
+                "contact_role": b.get("contact_role"),
+                "contact_phone": b.get("contact_phone"),
                 "site_store_addresses": b.get("_site_store_addresses", []),
                 "site_store_count": b.get("_site_store_count"),
                 "site_store_confidence": b.get("_site_store_confidence", "unknown"),
@@ -299,8 +327,15 @@ def _merge_extracted_into_brand(brand: Dict, extracted: Dict, source_row: Dict) 
         if val is not None:
             out[key] = val
 
-    if not out.get("contact_email") and extracted.get("contact_email"):
-        out["contact_email"] = extracted["contact_email"]
+    for contact_key in (
+        "contact_name",
+        "contact_role",
+        "contact_email",
+        "contact_phone",
+        "contact_linkedin",
+    ):
+        if not out.get(contact_key) and extracted.get(contact_key):
+            out[contact_key] = extracted[contact_key]
 
     hq_conf_existing = brand.get("headquarters_confidence")
     if hq_conf_existing == "verified" and brand.get("headquarters_city"):
@@ -425,7 +460,7 @@ async def _enrich_cached_brands_local_only(
     if hq_cities:
         city_ctx = await batch_check_hq_cities_against_target(city_ctx, hq_cities)
 
-    progress.append(f"📦 Presença local (brand_facts): {len(brands)} marcas")
+    logger.info("Local-only enrich (brand_facts cache): %d marcas", len(brands))
     brands = await _enrich_with_google_places(brands, city_ctx)
     brands = _merge_and_validate_locations(brands, city_ctx)
     return brands, city_ctx
@@ -451,17 +486,31 @@ async def _run_full_enrich_pipeline(
                 brand["_site_store_count"] = pre.get("site_store_count")
                 brand["_site_store_confidence"] = "verified"
             prefilled += 1
-    progress.append(f"✅ Prefill discovery: {prefilled}/{len(working)} marcas com dados iniciais")
+    logger.info("Prefill discovery: %d/%d marcas com dados iniciais", prefilled, len(working))
 
     needs_price = sum(1 for b in working if _needs_exa_price(b))
     needs_about = sum(1 for b in working if _needs_exa_about(b))
     needs_stores = sum(1 for b in working if _needs_exa_stores(b))
-    progress.append(
-        f"🔎 Exa suplementar: preços={needs_price}, sede={needs_about}, lojas={needs_stores}"
-    )
+    needs_contact = sum(1 for b in working if _needs_exa_contact(b))
+    progress.append("🔎 A recolher preços, lojas, sede e contacto de cada marca…")
     exa_contents = await _batch_fetch_exa_supplements(working)
     fetched = sum(1 for e in exa_contents if any(e.values()))
-    progress.append(f"✅ Exa suplementar: conteúdo extra em {fetched}/{len(working)} marcas")
+    logger.info("Exa supplemental: extra content for %d/%d brands", fetched, len(working))
+
+    # Extract emails from contact page content (regex) for brands still missing one
+    from services.discovery_prefill import extract_email_from_text
+    emails_found = 0
+    for i, brand in enumerate(working):
+        if not _needs_exa_contact(brand):
+            continue
+        contact_text = exa_contents[i].get("contact", "") if i < len(exa_contents) else ""
+        if contact_text:
+            email = extract_email_from_text(contact_text)
+            if email:
+                brand["contact_email"] = email
+                emails_found += 1
+    if emails_found:
+        logger.info("Exa contact page emails found (regex): %d/%d brands", emails_found, needs_contact)
 
     total_batches = (len(working) + ENRICH_BATCH_SIZE - 1) // ENRICH_BATCH_SIZE
     llm_sem = (
@@ -488,21 +537,20 @@ async def _run_full_enrich_pipeline(
         return batch_start, batch_num, merged_rows
 
     batch_starts = list(range(0, len(working), ENRICH_BATCH_SIZE))
-    progress.append(f"  🔬 LLM unified: {total_batches} batches em paralelo")
+    progress.append("🔬 A analisar cada marca (preço, estilo, lojas)…")
     batch_results = await asyncio.gather(*[_run_unified_batch(bs) for bs in batch_starts])
     batch_results.sort(key=lambda x: x[0])
     all_structured: List[Dict] = []
     for _bs, batch_num, merged_rows in batch_results:
         all_structured.extend(merged_rows)
-        progress.append(f"  ✓ LLM batch {batch_num}/{total_batches} ({len(merged_rows)} marcas)")
-    progress.append(f"✅ Extracção única: {len(all_structured)} marcas")
+        logger.info("LLM enrich batch %d/%d (%d marcas)", batch_num, total_batches, len(merged_rows))
 
     needing_hq = [
         b for b in all_structured
         if b.get("headquarters_confidence") != "verified" and not b.get("headquarters_city")
     ]
     if needing_hq:
-        progress.append(f"🏢 HQ knowledge batch: {len(needing_hq)} marcas...")
+        logger.info("HQ knowledge batch: %d marcas", len(needing_hq))
         await resolve_headquarters_via_llm_batch(needing_hq)
 
     city_ctx = await batch_check_hq_cities_against_target(
@@ -510,18 +558,18 @@ async def _run_full_enrich_pipeline(
         [b["headquarters_city"] for b in all_structured if b.get("headquarters_city")],
     )
     hq_resolved = sum(1 for b in all_structured if b.get("headquarters_city"))
-    progress.append(f"✅ Sede: {hq_resolved}/{len(all_structured)} marcas")
+    logger.info("Sede resolvida: %d/%d marcas", hq_resolved, len(all_structured))
 
-    progress.append(f"📍 Google Places para {len(all_structured)} marcas...")
+    progress.append("📍 A confirmar lojas e presença na cidade…")
     all_structured = await _enrich_with_google_places(all_structured, city_ctx)
     places_with = sum(
         1 for b in all_structured
         if b.get("_places_store_count", 0) > 0 or b.get("local_store_address")
     )
-    progress.append(f"✅ Google Places: {places_with}/{len(all_structured)}")
+    logger.info("Google Places: presença em %d/%d marcas", places_with, len(all_structured))
 
     enriched = _merge_and_validate_locations(all_structured, city_ctx)
-    progress.append(f"✅ Localização validada: {len(enriched)} marcas")
+    progress.append(f"✅ Detalhes recolhidos para {len(enriched)} marcas")
     return enriched, city_ctx
 
 
@@ -538,7 +586,7 @@ async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
         logger, "N3_ENRICH", target_city,
         f"Enriquecer {len(filtered_brands)} marcas (brand_facts → full ou local-only).",
     )
-    progress = [f"📊 Enriquecendo {len(filtered_brands)} marcas..."]
+    progress = [f"📋 A recolher detalhes de {len(filtered_brands)} marcas (preço, lojas, sede)…"]
 
     if not filtered_brands:
         step_end(logger, "N3_ENRICH", target_city, t_node, "sem marcas")
@@ -571,9 +619,9 @@ async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
         logger, "N3_CACHE_BRAND_FACTS", target_city, t_cache,
         hits=len(cache_hit), misses=len(cache_miss), ttl_days=ttl_days,
     )
-    progress.append(
-        f"📦 brand_facts: {len(cache_hit)} cache hit, {len(cache_miss)} enrich completo "
-        f"(TTL {ttl_days}d)"
+    logger.info(
+        "brand_facts cache: %d hits, %d full enrich (TTL %dd)",
+        len(cache_hit), len(cache_miss), ttl_days,
     )
 
     enriched_by_url: Dict[str, Dict] = {}
@@ -612,7 +660,7 @@ async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
     saved_facts = await upsert_brand_facts_from_brands(enriched)
     step_end(logger, "N3_SAVE_BRAND_FACTS", target_city, t_save_facts, upserted=saved_facts)
     if saved_facts:
-        progress.append(f"💾 brand_facts actualizados: {saved_facts} domínios")
+        logger.info("brand_facts atualizados: %d domínios", saved_facts)
 
     for b in enriched:
         logger.info(

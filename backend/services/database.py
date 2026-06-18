@@ -150,8 +150,10 @@ async def save_prospect(
                 heritage_brand, quality_score, similarity_score, location_score, location_quality,
                 final_score, fit_score, most_similar_client, similarity_explanation, status, discovered_at,
                 contact_name, contact_role, contact_email, contact_phone, contact_linkedin, price_note,
-                headquarters_address, product_images
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)
+                headquarters_address, product_images,
+                headquarters_city, headquarters_confidence, local_store_address,
+                city_presence_type, store_count_confidence
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)
             ON CONFLICT (id) DO UPDATE SET
                 avg_suit_price_eur = EXCLUDED.avg_suit_price_eur,
                 final_score = EXCLUDED.final_score,
@@ -161,6 +163,13 @@ async def save_prospect(
                 contact_phone = COALESCE(EXCLUDED.contact_phone, prospects.contact_phone),
                 contact_linkedin = COALESCE(EXCLUDED.contact_linkedin, prospects.contact_linkedin),
                 headquarters_address = COALESCE(EXCLUDED.headquarters_address, prospects.headquarters_address),
+                headquarters_city = COALESCE(EXCLUDED.headquarters_city, prospects.headquarters_city),
+                headquarters_confidence = COALESCE(EXCLUDED.headquarters_confidence, prospects.headquarters_confidence),
+                local_store_address = COALESCE(EXCLUDED.local_store_address, prospects.local_store_address),
+                city_presence_type = COALESCE(EXCLUDED.city_presence_type, prospects.city_presence_type),
+                store_count_confidence = COALESCE(EXCLUDED.store_count_confidence, prospects.store_count_confidence),
+                store_count = EXCLUDED.store_count,
+                store_locations = EXCLUDED.store_locations,
                 price_note = EXCLUDED.price_note,
                 product_images = COALESCE(EXCLUDED.product_images, prospects.product_images),
                 updated_at = CURRENT_TIMESTAMP
@@ -201,6 +210,11 @@ async def save_prospect(
             str(prospect.get("price_note", "")) if prospect.get("price_note") else None,
             str(prospect.get("headquarters_address", "")) if prospect.get("headquarters_address") else None,
             json.dumps(prospect.get("product_images", [])),
+            str(prospect.get("headquarters_city", "")) if prospect.get("headquarters_city") else None,
+            str(prospect.get("headquarters_confidence", "unknown") or "unknown"),
+            str(prospect.get("local_store_address", "")) if prospect.get("local_store_address") else None,
+            str(prospect.get("city_presence_type", "unknown") or "unknown"),
+            str(prospect.get("store_count_confidence", "unknown") or "unknown"),
         )
         
         print(f"[DATABASE] ✅ Saved to Postgres: {prospect.get('name')} ({city}) - Score: {scores.get('final_score', 0):.1f}")

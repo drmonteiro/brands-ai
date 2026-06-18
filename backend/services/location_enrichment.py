@@ -398,6 +398,17 @@ async def exa_store_locator_lookup(
     )
 
 
+async def exa_contact_email_lookup(
+    exa, brand_name: str, website_url: str, sem: Optional[asyncio.Semaphore] = None
+) -> str:
+    """Search brand domain specifically for contact page with email addresses."""
+    return await exa_domain_search(
+        exa, brand_name, website_url,
+        "contact us email enquiries get in touch",
+        sem=sem,
+    )
+
+
 async def extract_hq_from_content(brand_name: str, hq_content: str) -> Dict[str, Any]:
     """Extract HQ from Exa about page content — explicit evidence only."""
     if not hq_content or not hq_content.strip():

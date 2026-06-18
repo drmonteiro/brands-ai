@@ -126,10 +126,12 @@ class BrandLead(BaseModel):
     fit_score: Optional[int] = Field(default=0, alias="fitScore")
     similarity_failed: Optional[bool] = Field(default=None, alias="similarityFailed")
 
-    # Contact (populated by Google Places or future enrichment)
+    # Contact (discovery prefill + enrich LLM)
     contact_name: Optional[str] = Field(None, alias="contactName")
+    contact_role: Optional[str] = Field(None, alias="contactRole")
     contact_email: Optional[str] = Field(None, alias="contactEmail")
     contact_phone: Optional[str] = Field(None, alias="contactPhone")
+    contact_linkedin: Optional[str] = Field(None, alias="contactLinkedin")
 
     # DB compat fields
     material_composition: Optional[List[str]] = Field(default_factory=list, alias="materialComposition")

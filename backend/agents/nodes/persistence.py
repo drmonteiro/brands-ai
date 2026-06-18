@@ -256,7 +256,7 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
     # --- Phase 1: pgvector similarity ---
     t_sim = step_begin(logger, "N4a_SIMILARITY", target_city,
                         "Comparação por embedding com clientes Lança.")
-    progress.append("🔗 Calculando similaridade com clientes Lança...")
+    progress.append("🤝 A comparar cada marca com os clientes Lança…")
 
     similarity_scores = {}
     similar_client_data = {}
@@ -350,12 +350,11 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
         failures=similarity_failure_count,
         degraded=similarity_degraded,
     )
-    progress.append(f"✅ Similaridade calculada para {len(similarity_scores)} marcas")
 
     # --- Phase 2: LLM fit assessment ---
     t_fit = step_begin(logger, "N4b_LLM_FIT", target_city,
                         "Avaliação de fit via LLM.")
-    progress.append("🤖 LLM a avaliar fit de cada marca...")
+    progress.append("🤖 A avaliar o encaixe de cada marca com a Lança…")
 
     fit_scores: Dict[str, Dict] = {}
     total_fit_batches = (len(enriched_brands) + FIT_BATCH_SIZE - 1) // FIT_BATCH_SIZE
@@ -391,7 +390,6 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
 
     step_end(logger, "N4b_LLM_FIT", target_city, t_fit,
              brands_assessed=len(fit_scores), parallel_batches=total_fit_batches)
-    progress.append(f"✅ LLM fit: {len(fit_scores)} marcas avaliadas")
 
     # --- Phase 3: Final score calculation ---
     scored_brands = []
@@ -455,7 +453,7 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
     # --- Phase 4: Save to PostgreSQL ---
     t_save = step_begin(logger, "N4c_SAVE_DB", target_city,
                          f"Guardar top {len(top_brands)} marcas na base de dados.")
-    progress.append(f"\n💾 Guardando top {len(top_brands)} marcas...")
+    progress.append(f"🏆 A selecionar e guardar as {len(top_brands)} melhores marcas…")
 
     saved_count, duplicate_count = 0, 0
     verified_brands = []
@@ -505,8 +503,11 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
             "city_presence_type": brand.get("city_presence_type", "unknown"),
             "store_count_confidence": brand.get("store_count_confidence", "unknown"),
             "price_note": price_note_str,
+            "contact_name": brand.get("contact_name"),
+            "contact_role": brand.get("contact_role"),
             "contact_email": brand.get("contact_email"),
             "contact_phone": brand.get("contact_phone"),
+            "contact_linkedin": brand.get("contact_linkedin"),
         }
 
         similar = similar_client_data.get(url, [])
@@ -575,7 +576,11 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
                     city_presence_type=prospect_dict.get("city_presence_type"),
                     store_count_confidence=prospect_dict.get("store_count_confidence"),
                     price_note=price_note_str,
+                    contact_name=prospect_dict.get("contact_name"),
+                    contact_role=prospect_dict.get("contact_role"),
                     contact_email=prospect_dict.get("contact_email"),
+                    contact_phone=prospect_dict.get("contact_phone"),
+                    contact_linkedin=prospect_dict.get("contact_linkedin"),
                 )
                 verified_brands.append(brand_lead)
                 logger.info("  SAVED: %s (score=%.1f)", prospect_dict["name"], brand.get("final_score", 0))
@@ -585,10 +590,11 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
     step_end(logger, "N4c_SAVE_DB", target_city, t_save,
              saved=saved_count, duplicates=duplicate_count)
 
-    progress.append(f"  ✅ Guardados: {saved_count} novos")
-    if duplicate_count > 0:
-        progress.append(f"  ⏭️ Duplicados: {duplicate_count}")
-    progress.append(f"\n🎯 RESULTADO FINAL: {len(verified_brands)} marcas encontradas (top {MAX_OUTPUT_BRANDS})")
+    logger.info("Guardados %d novos, %d duplicados", saved_count, duplicate_count)
+    dup_note = f" ({duplicate_count} já existiam)" if duplicate_count > 0 else ""
+    progress.append(
+        f"🎯 Concluído: {len(verified_brands)} marcas guardadas para {target_city}{dup_note}"
+    )
 
     step_end(logger, "N4_SCORE_SAVE", target_city, t_node,
              saved=saved_count, duplicates=duplicate_count, output=len(verified_brands))

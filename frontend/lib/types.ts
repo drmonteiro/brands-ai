@@ -29,6 +29,11 @@ export interface BrandLead {
   notes?: string;
   price_note?: string;
   headquarters_address?: string;
+  headquarters_city?: string;
+  headquarters_confidence?: string;
+  local_store_address?: string;
+  city_presence_type?: string;
+  store_count_confidence?: string;
   discovered_at?: string;
   updated_at?: string;
   contact_name?: string;
@@ -61,6 +66,11 @@ export interface BrandLead {
   contactPhone?: string;
   contactLinkedin?: string;
   fitScore?: number;
+  headquartersCity?: string;
+  headquartersConfidence?: string;
+  localStoreAddress?: string;
+  cityPresenceType?: string;
+  storeCountConfidence?: string;
 }
 
 /**
@@ -82,4 +92,59 @@ export function parseJsonArray(value: string | string[] | undefined | null): str
  */
 export function getBrandField<T>(brand: BrandLead, snakeCase: keyof BrandLead, camelCase: keyof BrandLead): T | undefined {
   return (brand[snakeCase] ?? brand[camelCase]) as T | undefined;
+}
+
+/** Normalize for city comparison (Vienna ↔ Wien, accents, etc.) */
+export function normalizeCityName(city: string): string {
+  return city
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+const CITY_ALIAS_GROUPS: string[][] = [
+  ["vienna", "wien", "wiener"],
+  ["munich", "munchen", "muenchen"],
+  ["cologne", "koln", "koeln"],
+  ["zurich", "zuerich"],
+  ["rome", "roma"],
+  ["milan", "milano"],
+  ["lisbon", "lisboa"],
+  ["brussels", "bruxelles", "brussel"],
+];
+
+function cityTokens(city: string): Set<string> {
+  const n = normalizeCityName(city);
+  const tokens = new Set<string>([n]);
+  for (const group of CITY_ALIAS_GROUPS) {
+    if (group.some((g) => n === g || n.includes(g))) {
+      group.forEach((g) => tokens.add(g));
+    }
+  }
+  return tokens;
+}
+
+/** True when two city labels refer to the same place (e.g. Vienna / Wien). */
+export function citiesReferToSamePlace(a: string, b: string): boolean {
+  if (!a?.trim() || !b?.trim()) return false;
+  const ta = cityTokens(a);
+  const tb = cityTokens(b);
+  for (const t of ta) {
+    if (tb.has(t)) return true;
+  }
+  const na = normalizeCityName(a);
+  const nb = normalizeCityName(b);
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+/** HQ is in the city being prospected (brand.city), not merely a local store. */
+export function isHeadquartersInSearchCity(
+  headquartersCity: string | undefined,
+  searchCity: string,
+  cityPresenceType?: string
+): boolean {
+  if (cityPresenceType === "hq") return true;
+  if (!headquartersCity?.trim() || !searchCity?.trim()) return false;
+  return citiesReferToSamePlace(headquartersCity, searchCity);
 }

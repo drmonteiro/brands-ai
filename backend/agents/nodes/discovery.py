@@ -210,12 +210,12 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
     t_node = step_begin(logger, "N1_DISCOVERY", target_city,
                         "Inferir país, gerar queries via LLM, pesquisar no Exa e deduplicar.")
 
-    progress = [f"🚀 Pipeline iniciado para {target_city}"]
+    progress = [f"🚀 A iniciar pesquisa em {target_city}…"]
 
     # 1. Infer country
     target_country = await _infer_country(target_city)
     logger.info("País inferido: %s → %s", target_city, target_country)
-    progress.append(f"🌍 País: {target_country}")
+    progress.append(f"🌍 País identificado: {target_country}")
 
     # 2. Exchange rate (for downstream price conversion)
     exchange_rate = await get_exchange_rate()
@@ -228,9 +228,8 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
 
     for i, q in enumerate(queries):
         logger.info("  Query %d: %s", i + 1, q)
-        progress.append(f"  🔎 Q{i+1}: \"{q}\"")
 
-    progress.append(f"✅ {len(queries)} queries geradas")
+    progress.append(f"🔎 {len(queries)} pesquisas preparadas — a procurar marcas de moda masculina…")
 
     # 4. Call Exa for all queries in parallel (capped concurrency)
     exa = Exa(api_key=os.environ.get("EXA_API_KEY"))
@@ -259,11 +258,9 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
         qn = query_index + 1
         if err is not None:
             logger.error("  Exa Q%d failed: %s", qn, err)
-            progress.append(f"  ⚠️ Q{qn} falhou: {err}")
         else:
             all_raw.extend(items)
             logger.info("  Exa Q%d: %d results", qn, result_count)
-            progress.append(f"  ✓ Q{qn}: {result_count} resultados")
 
     step_end(logger, "N1b_EXA_SEARCH", target_city, t_exa,
              raw_results=len(all_raw), parallel_cap=EXA_QUERY_MAX_CONCURRENT)
@@ -271,7 +268,7 @@ async def discovery_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[
     # 5. Deduplicate by domain
     unique_results = _deduplicate_by_domain(all_raw)
     logger.info("Dedup: %d raw → %d unique domains", len(all_raw), len(unique_results))
-    progress.append(f"📈 {len(all_raw)} brutos → {len(unique_results)} domínios únicos")
+    progress.append(f"🏬 {len(unique_results)} marcas encontradas para analisar")
 
     step_end(logger, "N1_DISCOVERY", target_city, t_node,
              queries=len(queries), unique_domains=len(unique_results))

@@ -36,6 +36,9 @@ def _cors_origins() -> list:
     defaults = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        # Next.js dev fallback when port 3000 is taken
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
         "https://ambitious-coast-0f9176703.1.azurestaticapps.net",
     ]
     extra = os.getenv("CORS_ORIGINS", "")

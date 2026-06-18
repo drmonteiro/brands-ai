@@ -360,7 +360,7 @@ export default function ChatDashboard() {
                     <p className="text-[11px] text-gray-400 flex items-center justify-center gap-1.5">
                         <Info size={11} />
                         Powered by GPT-5.1 · Dados extraídos da base de dados Lança ·
-                        Verifica sempre na página &quot;Cidades Guardadas&quot;
+                        Verifica sempre na página &quot;Cidades guardadas&quot;
                     </p>
                 </div>
             </div>

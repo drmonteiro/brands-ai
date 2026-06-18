@@ -3,7 +3,8 @@ Email Service for Confeções Lança
 Handles sending partnership proposal emails using Resend API
 """
 
-from urllib.parse import urlparse
+from typing import Optional
+
 import resend
 
 from config import Config
@@ -15,15 +16,9 @@ def init_resend():
     resend.api_key = Config.RESEND_API_KEY
 
 
-def get_contact_email(brand: BrandLead) -> str:
-    """Generate contact email address for a brand"""
-    try:
-        parsed = urlparse(brand.website_url)
-        domain = parsed.hostname or ""
-        domain = domain.replace("www.", "")
-        return f"info@{domain}"
-    except Exception:
-        return "info@example.com"
+def get_contact_email(brand: BrandLead) -> Optional[str]:
+    """Return the brand's real contact email, or None if unavailable."""
+    return brand.contact_email.strip() if brand.contact_email else None
 
 
 async def generate_personalized_outreach(brand: BrandLead) -> str:

@@ -3,7 +3,11 @@
 import { useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { BrandLead, parseJsonArray } from "@/lib/types";
+import {
+  BrandLead,
+  parseJsonArray,
+  isHeadquartersInSearchCity,
+} from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -26,6 +30,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   MessageSquare,
+  AlertTriangle,
+  Building2,
 } from "lucide-react";
 import { FeedbackModal } from "./FeedbackModal";
 
@@ -133,6 +139,47 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
   const materialComposition = parseJsonArray(brand.material_composition);
   const madeToMeasure = brand.made_to_measure ?? false;
   const headquartersAddress = brand.headquarters_address || "";
+  const headquartersCity = brand.headquarters_city || brand.headquartersCity || "";
+  const headquartersConfidence = brand.headquarters_confidence || brand.headquartersConfidence || "unknown";
+  const localStoreAddress = brand.local_store_address || brand.localStoreAddress || "";
+  const cityPresenceType = brand.city_presence_type || brand.cityPresenceType || "unknown";
+  const storeCountConfidence = brand.store_count_confidence || brand.storeCountConfidence || "unknown";
+
+  const hqInSearchCity = isHeadquartersInSearchCity(
+    headquartersCity,
+    rawCity,
+    cityPresenceType
+  );
+  const isStoreOnlyInSearchCity =
+    cityPresenceType === "store" ||
+    (cityPresenceType === "showroom" && !hqInSearchCity);
+
+  const presenceBadge: Record<
+    string,
+    { label: string; className: string }
+  > = {
+    hq: {
+      label: "Sede na cidade",
+      className: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    },
+    store: {
+      label: "Só loja na cidade",
+      className: "bg-amber-100 text-amber-900 border-amber-200",
+    },
+    showroom: {
+      label: "Showroom",
+      className: "bg-amber-50 text-amber-800 border-amber-200",
+    },
+    unknown: { label: "", className: "" },
+  };
+  const presence = presenceBadge[cityPresenceType];
+
+  const storeConfidenceLabel: Record<string, { text: string; className: string }> = {
+    verified: { text: "confirmado", className: "bg-emerald-100 text-emerald-700" },
+    estimated: { text: "estimado", className: "bg-amber-100 text-amber-700" },
+    uncertain: { text: "aprox.", className: "bg-muted text-muted-foreground" },
+    unknown: { text: "", className: "" },
+  };
 
   // Determine fit level from fit_score
   const getFitLevel = () => {
@@ -167,6 +214,21 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
   }, []);
 
   // Format price — always show numeric range only
+  const linkedinHref = (() => {
+    if (!contactLinkedin?.trim()) return "";
+    const u = contactLinkedin.trim();
+    return u.startsWith("http") ? u : `https://${u}`;
+  })();
+  const linkedinIsCompany =
+    linkedinHref.includes("/company/") && !linkedinHref.includes("/in/");
+  const linkedinLabel = linkedinHref
+    ? linkedinIsCompany
+      ? "LinkedIn empresa"
+      : contactName
+        ? `Perfil de ${contactName}`
+        : "Perfil LinkedIn"
+    : "";
+
   const formatPrice = () => {
     if (priceNote) {
       // If priceNote is already a clean range like "€500 - €1200", show it
@@ -197,9 +259,23 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <MapPin className="h-3.5 w-3.5" />
-              <span className="text-sm">{city || "N/A"}, {country}</span>
+            <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
+              <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
+              <span className="text-sm">
+                {isStoreOnlyInSearchCity
+                  ? `Loja em ${city || "N/A"}`
+                  : hqInSearchCity
+                    ? `Sede em ${city || "N/A"}`
+                    : `${city || "N/A"}${country ? `, ${country}` : ""}`}
+              </span>
+              {presence?.label && (
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] px-1.5 py-0 h-5 border ${presence.className}`}
+                >
+                  {presence.label}
+                </Badge>
+              )}
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -241,6 +317,46 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
             </div>
           </div>
         </div>
+
+        {isStoreOnlyInSearchCity && (
+          <div
+            className="mb-4 flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-950"
+            role="status"
+          >
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-600 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium leading-snug">
+                Sem sede em {city || "esta cidade"} — apenas loja local
+              </p>
+              <p className="text-xs text-amber-900/85 mt-0.5 leading-relaxed">
+                {headquartersCity ? (
+                  <>
+                    A sede está em <span className="font-medium">{headquartersCity}</span>.
+                    Esta marca aparece na pesquisa por ter presença comercial em{" "}
+                    {city || "destino"}, não por ser uma marca local.
+                  </>
+                ) : (
+                  <>
+                    Não há sede confirmada em {city || "destino"}; a presença é
+                    uma loja ou filial na cidade pesquisada.
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {hqInSearchCity && headquartersCity && !isStoreOnlyInSearchCity && (
+          <div className="mb-4 flex items-center gap-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+            <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>
+              Sede em <span className="font-medium">{headquartersCity}</span>
+              {city && !headquartersCity.toLowerCase().includes(city.toLowerCase())
+                ? ` (${city})`
+                : ""}
+            </span>
+          </div>
+        )}
 
         {/* Product Images */}
         {validImages.length > 0 && (
@@ -296,7 +412,14 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
           <div className="bg-muted/50 rounded-lg p-3 text-center">
             <Store className="h-3.5 w-3.5 text-muted-foreground mx-auto mb-1" />
             <p className="text-xs text-muted-foreground mb-0.5">Lojas</p>
-            <p className="text-sm font-semibold text-foreground">{storeCount}</p>
+            <div className="flex items-center justify-center gap-1">
+              <p className="text-sm font-semibold text-foreground">{storeCount}</p>
+              {storeCountConfidence !== "unknown" && storeCountConfidence !== "verified" && (
+                <span className={`text-[10px] px-1 py-0.5 rounded ${storeConfidenceLabel[storeCountConfidence]?.className || ""}`}>
+                  {storeConfidenceLabel[storeCountConfidence]?.text}
+                </span>
+              )}
+            </div>
           </div>
           <div className="bg-muted/50 rounded-lg p-3 text-center">
             <Tag className="h-3.5 w-3.5 text-muted-foreground mx-auto mb-1" />
@@ -318,12 +441,47 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
           </div>
         )}
 
-        {/* Email quick access */}
-        {contactEmail && (
-          <a href={`mailto:${contactEmail}`} className="flex items-center gap-2 mb-3 px-2.5 py-1.5 bg-blue-50 border border-blue-100 rounded-md hover:bg-blue-100 transition-colors w-fit">
-            <Mail className="h-3.5 w-3.5 text-blue-600" />
-            <span className="text-xs text-blue-700 font-medium">{contactEmail}</span>
-          </a>
+        {/* Contact quick access */}
+        {(contactName || contactEmail || contactPhone || contactLinkedin) && (
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            {contactName && (
+              <span className="text-xs text-foreground font-medium px-2 py-1 bg-muted/60 rounded-md">
+                {contactName}
+                {contactRole ? (
+                  <span className="text-muted-foreground font-normal"> · {contactRole}</span>
+                ) : null}
+              </span>
+            )}
+            {contactEmail && (
+              <a
+                href={`mailto:${contactEmail}`}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 border border-blue-100 rounded-md hover:bg-blue-100 transition-colors"
+              >
+                <Mail className="h-3.5 w-3.5 text-blue-600" />
+                <span className="text-xs text-blue-700 font-medium">{contactEmail}</span>
+              </a>
+            )}
+            {linkedinHref && (
+              <a
+                href={linkedinHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0A66C2]/10 border border-[#0A66C2]/20 rounded-md hover:bg-[#0A66C2]/15 transition-colors"
+              >
+                <Linkedin className="h-3.5 w-3.5 text-[#0A66C2]" />
+                <span className="text-xs text-[#0A66C2] font-medium">{linkedinLabel}</span>
+              </a>
+            )}
+            {contactPhone && (
+              <a
+                href={`tel:${contactPhone}`}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-muted/50 border border-border rounded-md hover:bg-muted transition-colors"
+              >
+                <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs text-foreground font-medium">{contactPhone}</span>
+              </a>
+            )}
+          </div>
         )}
 
         {/* Description */}
@@ -365,10 +523,10 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
                       {contactPhone}
                     </a>
                   )}
-                  {contactLinkedin && (
-                    <a href={contactLinkedin} target="_blank" rel="noopener" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
+                  {linkedinHref && (
+                    <a href={linkedinHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
                       <Linkedin className="h-3.5 w-3.5" />
-                      LinkedIn
+                      {linkedinLabel}
                     </a>
                   )}
                 </div>
@@ -389,12 +547,35 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
             )}
 
             {/* HQ Address */}
-            {headquartersAddress && (
+            {headquartersConfidence !== "unknown" && (headquartersAddress || headquartersCity) && (
               <div>
-                <p className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">Sede</p>
+                <p className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">
+                  Sede
+                  {headquartersConfidence === "llm_knowledge" && (
+                    <span className="ml-2 text-[10px] font-normal text-muted-foreground normal-case">(conhecimento IA)</span>
+                  )}
+                </p>
                 <div className="flex items-start gap-2 bg-muted/50 rounded-lg p-3">
                   <MapPin className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground leading-relaxed">{headquartersAddress}</p>
+                  <div>
+                    {headquartersCity && (
+                      <p className="text-sm font-medium text-foreground">{headquartersCity}</p>
+                    )}
+                    {headquartersAddress && (
+                      <p className="text-sm text-muted-foreground leading-relaxed">{headquartersAddress}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Local Store in target city */}
+            {localStoreAddress && (
+              <div>
+                <p className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">Loja local ({city})</p>
+                <div className="flex items-start gap-2 bg-muted/50 rounded-lg p-3">
+                  <MapPin className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-muted-foreground leading-relaxed">{localStoreAddress}</p>
                 </div>
               </div>
             )}
@@ -469,18 +650,21 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
         {/* Actions */}
         <div className="flex items-center gap-2 pt-3 border-t border-border">
           <Button
-            disabled={emailStatus !== "idle"}
+            disabled={emailStatus !== "idle" || !contactEmail}
             className={`flex-1 h-10 rounded-lg text-sm font-medium transition-all duration-200 ${
               emailStatus === "sent" 
                 ? "bg-emerald-600 text-white" 
+                : !contactEmail
+                ? "bg-muted text-muted-foreground cursor-not-allowed"
                 : "bg-lanca-black hover:bg-lanca-charcoal text-white"
             }`}
             onClick={handleSendEmail}
+            title={!contactEmail ? "Sem email de contacto disponível" : undefined}
           >
             {emailStatus === "idle" ? (
               <div className="flex items-center gap-2">
                 <Send className="h-3.5 w-3.5" />
-                <span>Enviar Proposta</span>
+                <span>{!contactEmail ? "Sem email" : "Enviar proposta"}</span>
               </div>
             ) : emailStatus === "sending" ? (
               <div className="flex items-center gap-2">

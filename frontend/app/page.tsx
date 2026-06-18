@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,21 @@ import {
   CheckCircle2,
   Loader2,
 } from "lucide-react";
+import { apiUrl } from "@/lib/apiBase";
+
+type ProspectJobStatus = {
+  city: string;
+  status: "idle" | "running" | "completed" | "failed";
+  progress?: string[];
+  brandCount?: number;
+  error?: string | null;
+  cached?: boolean;
+  similarityDegraded?: boolean;
+  similarityFailureCount?: number;
+  alreadyRunning?: boolean;
+};
+
+const POLL_INTERVAL_MS = 3000;
 
 export default function Home() {
   const [city, setCity] = useState("");
@@ -23,76 +38,128 @@ export default function Home() {
   const [searchedCity, setSearchedCity] = useState("");
   const [searchComplete, setSearchComplete] = useState(false);
   const [progressMessages, setProgressMessages] = useState<string[]>([]);
+  const [activeJobCity, setActiveJobCity] = useState<string | null>(null);
+
+  const finishSearch = useCallback((targetCity: string, data: ProspectJobStatus) => {
+    setSearchComplete(true);
+    setSearchedCity(targetCity);
+    setActiveJobCity(null);
+    setIsSearching(false);
+
+    if (data.similarityDegraded) {
+      toast.warning(
+        `Pesquisa concluída com aviso: ${data.similarityFailureCount ?? "?"} marcas sem similaridade (run degradado).`
+      );
+    }
+
+    const countNote = data.brandCount != null ? ` (${data.brandCount} marcas)` : "";
+    toast.success(
+      data.cached
+        ? `Resultados para ${targetCity} já estavam guardados${countNote}.`
+        : `Pesquisa concluída! Resultados para ${targetCity} guardados${countNote}.`
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!activeJobCity) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      while (!cancelled) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+        if (cancelled) break;
+
+        try {
+          const response = await fetch(
+            apiUrl(`/api/prospect/status?city=${encodeURIComponent(activeJobCity)}`)
+          );
+          if (!response.ok) continue;
+
+          const data: ProspectJobStatus = await response.json();
+          if (cancelled) break;
+
+          if (data.progress?.length) {
+            setProgressMessages(data.progress.slice(-4));
+          }
+
+          if (data.status === "completed") {
+            finishSearch(activeJobCity, data);
+            break;
+          }
+          if (data.status === "failed") {
+            setActiveJobCity(null);
+            setIsSearching(false);
+            toast.error(data.error || "Ocorreu um erro na pesquisa.");
+            break;
+          }
+          if (data.status === "idle") {
+            setActiveJobCity(null);
+            setIsSearching(false);
+            toast.message(
+              "Não foi possível acompanhar o estado da pesquisa. Verifica Cidades guardadas dentro de momentos."
+            );
+            break;
+          }
+        } catch (e) {
+          console.error("[prospect poll]", e);
+        }
+      }
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeJobCity, finishSearch]);
 
   const handleSearch = async () => {
     if (!city.trim()) return;
+    const targetCity = city.trim();
     setIsSearching(true);
     setSearchComplete(false);
-    setSearchedCity(city.trim());
+    setSearchedCity(targetCity);
     setProgressMessages([]);
+    setActiveJobCity(null);
 
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${API_URL}/api/prospect`, {
+      const response = await fetch(apiUrl("/api/prospect"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ city: city.trim(), force_refresh: forceRefresh }),
+        body: JSON.stringify({ city: targetCity, force_refresh: forceRefresh }),
       });
 
-      if (!response.ok) throw new Error("Falha ao iniciar pesquisa.");
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response stream");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
-          const parts = buffer.split('\n\n');
-          buffer = parts.pop() || "";
-          for (const part of parts) {
-            if (part.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(part.substring(6));
-                
-                // Ignore heartbeat events (keep-alive for Azure SSE)
-                if (data.type === 'heartbeat') continue;
-                
-                // If backend throws an error, gracefully abort and throw
-                if (data.type === 'error') {
-                  throw new Error(data.message || "Erro no servidor.");
-                }
-                
-                if (data.type === "complete" && data.similarityDegraded) {
-                  toast.warning(
-                    `Pesquisa concluída com aviso: ${data.similarityFailureCount ?? "?"} marcas sem similaridade (run degradado).`
-                  );
-                }
-
-                if (data.message) {
-                  setProgressMessages(prev => [...prev.slice(-3), data.message]);
-                }
-              } catch (e: any) {
-                // If it's the error we threw above, propagate it up to stop the loop
-                if (e.message && !e.message.includes('JSON')) {
-                  throw e;
-                }
-              }
-            }
-          }
-        }
-        if (done) break;
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || "Falha ao iniciar pesquisa.");
       }
 
-      setSearchComplete(true);
-      toast.success(`Pesquisa concluída! Resultados para ${city.trim()} guardados.`);
-    } catch (error: any) {
+      const data: ProspectJobStatus = await response.json();
+
+      if (data.progress?.length) {
+        setProgressMessages(data.progress.slice(-4));
+      }
+
+      if (data.status === "completed") {
+        finishSearch(targetCity, data);
+        return;
+      }
+
+      if (data.status === "running") {
+        if (data.alreadyRunning) {
+          toast.message(`Pesquisa de ${targetCity} já está a correr em background.`);
+        } else {
+          toast.message("Pesquisa iniciada — podes sair desta página enquanto processa.");
+        }
+        setActiveJobCity(targetCity);
+        return;
+      }
+
+      throw new Error("Resposta inesperada do servidor.");
+    } catch (error: unknown) {
       console.error(error);
-      toast.error(error.message || "Ocorreu um erro na pesquisa.");
-    } finally {
+      const message = error instanceof Error ? error.message : "Ocorreu um erro na pesquisa.";
+      toast.error(message);
       setIsSearching(false);
     }
   };
@@ -115,7 +182,7 @@ export default function Home() {
           <Link href="/saved-cities">
             <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 rounded-md border-border">
               <MapPin className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Cidades Guardadas</span>
+              <span className="hidden sm:inline">Cidades guardadas</span>
             </Button>
           </Link>
           <Link href="/clients">
@@ -195,17 +262,27 @@ export default function Home() {
           </div>
 
           {/* Progress */}
-          {isSearching && progressMessages.length > 0 && (
+          {isSearching && (
             <div className="mt-4 bg-white border border-border rounded-md p-4 animate-fade-in">
-              <p className="section-label mb-3">A processar</p>
-              <div className="space-y-1.5 font-mono text-[12px]">
-                {progressMessages.map((msg, i) => (
-                  <div key={i} className={`flex gap-2 items-start ${i === progressMessages.length - 1 ? 'text-foreground' : 'text-muted-foreground/40'}`}>
-                    <span className="text-[#D4A514] mt-px opacity-70">›</span>
-                    <span className="leading-snug">{msg}</span>
-                  </div>
-                ))}
-              </div>
+              <p className="section-label mb-1">A processar</p>
+              <p className="text-[11px] text-muted-foreground mb-3">
+                A pesquisa corre em background — podes navegar para outras páginas.
+              </p>
+              {progressMessages.length > 0 ? (
+                <div className="space-y-1.5 font-mono text-[12px]">
+                  {progressMessages.map((msg, i) => (
+                    <div key={i} className={`flex gap-2 items-start ${i === progressMessages.length - 1 ? 'text-foreground' : 'text-muted-foreground/40'}`}>
+                      <span className="text-[#D4A514] mt-px opacity-70">›</span>
+                      <span className="leading-snug">{msg}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>A iniciar pipeline…</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -257,7 +334,7 @@ export default function Home() {
                 <MapPin className="h-4 w-4 text-[#D4A514] group-hover:text-black transition-colors duration-200" />
               </div>
               <div className="min-w-0 flex-1">
-                <h3 className="text-[14px] font-semibold text-foreground mb-0.5">Cidades Guardadas</h3>
+                <h3 className="text-[14px] font-semibold text-foreground mb-0.5">Cidades guardadas</h3>
                 <p className="text-[12px] text-muted-foreground leading-relaxed">
                   Consulte e filtre todas as marcas encontradas por cidade.
                 </p>

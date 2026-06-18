@@ -15,6 +15,15 @@ _EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 _EMAIL_BLOCK = ("noreply", "no-reply", "unsubscribe", "mailer-daemon", "privacy@")
 _EMAIL_PREFERRED = ("info@", "contact@", "hello@", "sales@", "enquir", "customercare@")
 
+_LINKEDIN_URL_RE = re.compile(
+    r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/(?:in|company)/[a-zA-Z0-9\-_%]+/?",
+    re.I,
+)
+_LINKEDIN_BARE_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?linkedin\.com/(in|company)/([a-zA-Z0-9\-_%]+)/?",
+    re.I,
+)
+
 _HQ_PATTERNS = [
     re.compile(
         r"(?:based in|headquartered in|head office in|registered office in|founded in)"
@@ -45,6 +54,36 @@ def _parse_amount(raw: str) -> Optional[float]:
         return v if v > 0 else None
     except ValueError:
         return None
+
+
+def normalize_linkedin_url(url: str) -> str:
+    u = url.strip().rstrip("/")
+    if not u.lower().startswith("http"):
+        u = f"https://{u.lstrip('/')}"
+    return u
+
+
+def extract_linkedin_from_text(text: str) -> Optional[str]:
+    """Prefer personal /in/ profiles; fall back to company page."""
+    if not text:
+        return None
+    person: Optional[str] = None
+    company: Optional[str] = None
+    for m in _LINKEDIN_URL_RE.finditer(text[:DISCOVERY_MAX_CHARS]):
+        url = normalize_linkedin_url(m.group(0))
+        if "/in/" in url.lower():
+            person = person or url
+        elif "/company/" in url.lower():
+            company = company or url
+    if not person and not company:
+        for m in _LINKEDIN_BARE_RE.finditer(text[:DISCOVERY_MAX_CHARS]):
+            kind, slug = m.group(1).lower(), m.group(2)
+            url = normalize_linkedin_url(f"https://www.linkedin.com/{kind}/{slug}")
+            if kind == "in":
+                person = person or url
+            else:
+                company = company or url
+    return person or company
 
 
 def extract_email_from_text(text: str) -> Optional[str]:
@@ -135,6 +174,10 @@ def prefill_from_discovery(brand: Dict[str, Any]) -> Dict[str, Any]:
     email = extract_email_from_text(text)
     if email:
         result["contact_email"] = email
+
+    linkedin = extract_linkedin_from_text(text)
+    if linkedin:
+        result["contact_linkedin"] = linkedin
 
     price = extract_price_hints_from_text(text)
     result.update({k: v for k, v in price.items() if v is not None})
