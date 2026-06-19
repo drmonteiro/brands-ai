@@ -44,6 +44,49 @@ jobs:
           EXTERNAL_AGENT_NAME: "UK Agent"
           EXTERNAL_AGENT_REGION: "UK"
 
+      # Sync runtime env vars → Azure Static Web App (NextAuth reads these at request time).
+      # Requires GitHub secret AZURE_CREDENTIALS with access to the SWA subscription.
+      # Optional: AZURE_SWA_RESOURCE_GROUP if auto-discovery fails.
+      - name: Login to Azure
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Sync Application Settings to Static Web App
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            set -euo pipefail
+            SWA_NAME="ambitious-coast-0f9176703"
+            RG="${{ secrets.AZURE_SWA_RESOURCE_GROUP }}"
+            if [ -z "$RG" ]; then
+              echo "AZURE_SWA_RESOURCE_GROUP not set — discovering resource group..."
+              RG=$(az staticwebapp list --query "[?name=='${SWA_NAME}'].resourceGroup | [0]" -o tsv)
+            fi
+            if [ -z "$RG" ] || [ "$RG" = "null" ]; then
+              echo "ERROR: Could not find Static Web App '${SWA_NAME}' in the logged-in subscription." >&2
+              echo "Add GitHub secret AZURE_SWA_RESOURCE_GROUP or fix AZURE_CREDENTIALS subscription access." >&2
+              exit 1
+            fi
+            echo "Syncing app settings to ${SWA_NAME} (resource group: ${RG})..."
+            az staticwebapp appsettings set \
+              --name "$SWA_NAME" \
+              --resource-group "$RG" \
+              --setting-names \
+                NEXTAUTH_URL=https://ambitious-coast-0f9176703.1.azurestaticapps.net \
+                NEXT_PUBLIC_API_URL=https://lanca-ai-backend-api.azurewebsites.net \
+                EXTERNAL_AGENT_NAME="UK Agent" \
+                EXTERNAL_AGENT_REGION=UK \
+                NEXTAUTH_SECRET="${{ secrets.NEXTAUTH_SECRET }}" \
+                AZURE_AD_CLIENT_ID="${{ secrets.AZURE_AD_CLIENT_ID }}" \
+                AZURE_AD_CLIENT_SECRET="${{ secrets.AZURE_AD_CLIENT_SECRET }}" \
+                AZURE_AD_TENANT_ID="${{ secrets.AZURE_AD_TENANT_ID }}" \
+                EXTERNAL_AGENT_USERNAME="${{ secrets.EXTERNAL_AGENT_USERNAME }}" \
+                EXTERNAL_AGENT_PASSWORD="${{ secrets.EXTERNAL_AGENT_PASSWORD }}"
+
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
