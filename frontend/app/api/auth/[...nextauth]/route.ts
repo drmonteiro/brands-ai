@@ -71,10 +71,10 @@ const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
+        const inputUser = credentials.username.trim();
+        const inputPass = credentials.password.trim();
         const agent = getExternalAgents().find(
-          (a) =>
-            a.username === credentials.username &&
-            a.password === credentials.password
+          (a) => a.username === inputUser && a.password === inputPass
         );
         if (!agent) return null;
         return {
@@ -110,6 +110,7 @@ const authOptions: NextAuthOptions = {
     },
   },
   secret: process.env.NEXTAUTH_SECRET,
+  trustHost: true,
 };
 
 const handler = NextAuth(authOptions);

@@ -40,7 +40,9 @@ function SignInInner() {
     });
     setLoadingAgent(false);
     if (res?.ok) {
-      router.push(callbackUrl);
+      // Full navigation so middleware picks up the new session cookie (App Router).
+      window.location.href = callbackUrl;
+      return;
     } else {
       const detail =
         res?.error === "CredentialsSignin"

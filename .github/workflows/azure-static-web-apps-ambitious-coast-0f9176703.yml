@@ -34,6 +34,52 @@ jobs:
           ###### End of Repository/Build Configurations ######
         env:
           NEXT_PUBLIC_API_URL: "https://lanca-ai-backend-api.azurewebsites.net"
+          NEXTAUTH_URL: "https://ambitious-coast-0f9176703.1.azurestaticapps.net"
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+          AZURE_AD_CLIENT_ID: ${{ secrets.AZURE_AD_CLIENT_ID }}
+          AZURE_AD_CLIENT_SECRET: ${{ secrets.AZURE_AD_CLIENT_SECRET }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          EXTERNAL_AGENT_USERNAME: ${{ secrets.EXTERNAL_AGENT_USERNAME }}
+          EXTERNAL_AGENT_PASSWORD: ${{ secrets.EXTERNAL_AGENT_PASSWORD }}
+          EXTERNAL_AGENT_NAME: "UK Agent"
+          EXTERNAL_AGENT_REGION: "UK"
+
+      # ============================================================
+      # SYNC ENV VARS → AZURE STATIC WEB APP (runtime / NextAuth)
+      # ============================================================
+      # Secrets necessários em GitHub → Settings → Secrets → Actions:
+      #   AZURE_CREDENTIALS              (já usado no backend)
+      #   AZURE_SWA_RESOURCE_GROUP       (resource group da SWA)
+      #   NEXTAUTH_SECRET
+      #   AZURE_AD_CLIENT_ID / SECRET / TENANT_ID
+      #   EXTERNAL_AGENT_USERNAME / EXTERNAL_AGENT_PASSWORD
+      # ============================================================
+      - name: Login to Azure
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Sync Application Settings to Static Web App
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az staticwebapp appsettings set \
+              --name "ambitious-coast-0f9176703" \
+              --resource-group "${{ secrets.AZURE_SWA_RESOURCE_GROUP }}" \
+              --setting-names \
+                NEXTAUTH_URL="https://ambitious-coast-0f9176703.1.azurestaticapps.net" \
+                NEXTAUTH_SECRET="${{ secrets.NEXTAUTH_SECRET }}" \
+                NEXT_PUBLIC_API_URL="https://lanca-ai-backend-api.azurewebsites.net" \
+                AZURE_AD_CLIENT_ID="${{ secrets.AZURE_AD_CLIENT_ID }}" \
+                AZURE_AD_CLIENT_SECRET="${{ secrets.AZURE_AD_CLIENT_SECRET }}" \
+                AZURE_AD_TENANT_ID="${{ secrets.AZURE_AD_TENANT_ID }}" \
+                EXTERNAL_AGENT_USERNAME="${{ secrets.EXTERNAL_AGENT_USERNAME }}" \
+                EXTERNAL_AGENT_PASSWORD="${{ secrets.EXTERNAL_AGENT_PASSWORD }}" \
+                EXTERNAL_AGENT_NAME="UK Agent" \
+                EXTERNAL_AGENT_REGION="UK"
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
