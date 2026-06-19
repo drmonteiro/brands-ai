@@ -66,20 +66,25 @@ jobs:
         with:
           azcliversion: latest
           inlineScript: |
+            set -euo pipefail
             az staticwebapp appsettings set \
               --name "ambitious-coast-0f9176703" \
               --resource-group "${{ secrets.AZURE_SWA_RESOURCE_GROUP }}" \
               --setting-names \
-                NEXTAUTH_URL="https://ambitious-coast-0f9176703.1.azurestaticapps.net" \
+                NEXTAUTH_URL=https://ambitious-coast-0f9176703.1.azurestaticapps.net \
+                NEXT_PUBLIC_API_URL=https://lanca-ai-backend-api.azurewebsites.net \
+                EXTERNAL_AGENT_NAME="UK Agent" \
+                EXTERNAL_AGENT_REGION=UK
+            az staticwebapp appsettings set \
+              --name "ambitious-coast-0f9176703" \
+              --resource-group "${{ secrets.AZURE_SWA_RESOURCE_GROUP }}" \
+              --setting-names \
                 NEXTAUTH_SECRET="${{ secrets.NEXTAUTH_SECRET }}" \
-                NEXT_PUBLIC_API_URL="https://lanca-ai-backend-api.azurewebsites.net" \
                 AZURE_AD_CLIENT_ID="${{ secrets.AZURE_AD_CLIENT_ID }}" \
                 AZURE_AD_CLIENT_SECRET="${{ secrets.AZURE_AD_CLIENT_SECRET }}" \
                 AZURE_AD_TENANT_ID="${{ secrets.AZURE_AD_TENANT_ID }}" \
                 EXTERNAL_AGENT_USERNAME="${{ secrets.EXTERNAL_AGENT_USERNAME }}" \
-                EXTERNAL_AGENT_PASSWORD="${{ secrets.EXTERNAL_AGENT_PASSWORD }}" \
-                EXTERNAL_AGENT_NAME="UK Agent" \
-                EXTERNAL_AGENT_REGION="UK"
+                EXTERNAL_AGENT_PASSWORD="${{ secrets.EXTERNAL_AGENT_PASSWORD }}"
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

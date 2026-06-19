@@ -1,16 +1,27 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Building2, Globe, Loader2, Lock, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+function resolveCallbackUrl(raw: string | null): string {
+  if (!raw) return "/";
+  if (raw.startsWith("/")) return raw;
+  try {
+    const url = new URL(raw);
+    // Keep path on current origin — avoids 3000 vs 3001 cookie mismatch locally.
+    return `${url.pathname}${url.search}${url.hash}` || "/";
+  } catch {
+    return "/";
+  }
+}
+
 function SignInInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const callbackUrl = resolveCallbackUrl(searchParams.get("callbackUrl"));
   const initialError = searchParams.get("error");
 
   const [username, setUsername] = useState("");
@@ -40,8 +51,10 @@ function SignInInner() {
     });
     setLoadingAgent(false);
     if (res?.ok) {
-      // Full navigation so middleware picks up the new session cookie (App Router).
-      window.location.href = callbackUrl;
+      const target = callbackUrl.startsWith("/")
+        ? `${window.location.origin}${callbackUrl}`
+        : callbackUrl;
+      window.location.href = target;
       return;
     } else {
       const detail =
