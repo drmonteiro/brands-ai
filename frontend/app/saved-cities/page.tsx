@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import {
     Globe,
     Users,
@@ -15,12 +17,19 @@ import {
     Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { BrandCard } from "@/components/BrandCard";
 import { FilterPanel, ProspectFilters } from "@/components/FilterPanel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BrandLead } from "@/lib/types";
 import { apiUrl } from "@/lib/apiBase";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
+
+const BrandCard = dynamic(
+  () => import("@/components/BrandCard").then((mod) => mod.BrandCard),
+  {
+    loading: () => <div className="h-56 rounded-lg bg-white border border-border animate-pulse" />,
+  }
+);
 
 const CITIES_CACHE_KEY = "lanca_cities_cache_v1";
 
@@ -47,6 +56,9 @@ interface CityData {
 }
 
 export default function SavedCitiesPage() {
+    const { data: session } = useSession();
+    const managerName = session?.user?.name || "Comercial";
+
     // SSR and first client paint must match (no sessionStorage in initial state).
     // Cache is applied in useEffect after hydration to avoid mismatch errors.
     const [savedCities, setSavedCities] = useState<CityData[]>([]);
@@ -55,6 +67,7 @@ export default function SavedCitiesPage() {
     const [isLoadingCities, setIsLoadingCities] = useState(true);
     const [isLoadingProspects, setIsLoadingProspects] = useState(false);
     const [activeFilters, setActiveFilters] = useState<ProspectFilters>({});
+    const debouncedFilters = useDebouncedValue(activeFilters, 300);
     const [cityToDelete, setCityToDelete] = useState<string | null>(null);
 
     useEffect(() => {
@@ -62,6 +75,8 @@ export default function SavedCitiesPage() {
         if (cached?.length) {
             setSavedCities(cached);
             setIsLoadingCities(false);
+            const timer = setTimeout(() => fetchCities(), 1500);
+            return () => clearTimeout(timer);
         }
         fetchCities();
     }, []);
@@ -76,12 +91,12 @@ export default function SavedCitiesPage() {
             setIsLoadingProspects(true);
             try {
                 const params = new URLSearchParams({ city: selectedCity, limit: "100" });
-                if (activeFilters.minStores) params.append("min_stores", activeFilters.minStores.toString());
-                if (activeFilters.maxStores) params.append("max_stores", activeFilters.maxStores.toString());
-                if (activeFilters.minPrice) params.append("min_price", activeFilters.minPrice.toString());
-                if (activeFilters.maxPrice) params.append("max_price", activeFilters.maxPrice.toString());
-                if (activeFilters.fitForLanca === "high") params.append("min_score", "70");
-                if (activeFilters.fitForLanca === "medium") params.append("min_score", "50");
+                if (debouncedFilters.minStores) params.append("min_stores", debouncedFilters.minStores.toString());
+                if (debouncedFilters.maxStores) params.append("max_stores", debouncedFilters.maxStores.toString());
+                if (debouncedFilters.minPrice) params.append("min_price", debouncedFilters.minPrice.toString());
+                if (debouncedFilters.maxPrice) params.append("max_price", debouncedFilters.maxPrice.toString());
+                if (debouncedFilters.fitForLanca === "high") params.append("min_score", "70");
+                if (debouncedFilters.fitForLanca === "medium") params.append("min_score", "50");
                 const response = await fetch(apiUrl(`/api/prospects?${params.toString()}`));
                 if (!response.ok) {
                     const t = await response.text().catch(() => "");
@@ -101,7 +116,7 @@ export default function SavedCitiesPage() {
         };
         load();
         return () => { cancelled = true; };
-    }, [selectedCity, activeFilters]);
+    }, [selectedCity, debouncedFilters]);
 
     const fetchCities = async () => {
         const hasCache =
@@ -380,6 +395,7 @@ export default function SavedCitiesPage() {
                                             key={brand.id}
                                             brand={brand}
                                             onSendEmail={handleSendEmail}
+                                            managerName={managerName}
                                         />
                                     ))}
                                 </div>

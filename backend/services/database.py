@@ -30,26 +30,59 @@ async def get_db_conn():
 
 async def init_database():
     """
-    Initialize the PostgreSQL database with required tables by running all migrations.
+    Initialize the PostgreSQL database with required tables by running pending migrations.
     """
     migrations_dir = os.path.join(os.path.dirname(__file__), "..", "migrations")
     if not os.path.exists(migrations_dir):
         print(f"❌ Migrations directory not found at {migrations_dir}")
         return
 
-    # Sort migrations by name
     migration_files = sorted([f for f in os.listdir(migrations_dir) if f.endswith(".sql")])
-    
+
     try:
         pool = await PostgresManager.get_pool()
         async with pool.acquire() as conn:
-            for migration_file in migration_files:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    filename TEXT PRIMARY KEY,
+                    applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            applied = {
+                row["filename"]
+                for row in await conn.fetch("SELECT filename FROM schema_migrations")
+            }
+
+            # Existing databases: mark already-applied migrations without re-running them
+            if not applied:
+                has_prospects = await conn.fetchval(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'prospects')"
+                )
+                if has_prospects:
+                    for migration_file in migration_files:
+                        await conn.execute(
+                            "INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING",
+                            migration_file,
+                        )
+                    applied = set(migration_files)
+                    print("[DATABASE] Marked existing schema migrations as applied")
+
+            pending = [f for f in migration_files if f not in applied]
+            if not pending:
+                print("[DATABASE] ✅ Schema up to date (no pending migrations)")
+                return
+
+            for migration_file in pending:
                 path = os.path.join(migrations_dir, migration_file)
                 print(f"[DATABASE] Executing migration: {migration_file}...")
                 with open(path, "r") as f:
                     schema_sql = f.read()
                     await conn.execute(schema_sql)
-        print("[DATABASE] ✅ PostgreSQL database and feedback tables initialized")
+                await conn.execute(
+                    "INSERT INTO schema_migrations (filename) VALUES ($1)",
+                    migration_file,
+                )
+        print(f"[DATABASE] ✅ Applied {len(pending)} migration(s)")
     except Exception as e:
         print(f"[DATABASE] ❌ Initialization failed: {e}")
         print("💡 Make sure Neon database is reachable and credentials correctly set in .env")
@@ -312,6 +345,7 @@ async def get_prospects_filtered(
     # Pagination
     limit: int = 25,
     offset: int = 0,
+    include_feedback: bool = False,
 ) -> Dict:
     """
     Advanced filtering for prospects with multiple criteria.
@@ -430,16 +464,30 @@ async def get_prospects_filtered(
         
         count_query = f"SELECT COUNT(DISTINCT domain) FROM prospects {where_clause}"
         total_count = await conn.fetchval(count_query, *params)
-        
-        # Enrich with feedback history for each prospect
-        for p in prospects:
+
+        if include_feedback and prospects:
+            prospect_ids = [p["id"] for p in prospects]
             feedback_rows = await conn.fetch("""
-                SELECT feedback_type, comment, created_at, manager_name 
-                FROM prospect_feedback 
-                WHERE prospect_id = $1 
+                SELECT prospect_id, feedback_type, comment, created_at, manager_name
+                FROM prospect_feedback
+                WHERE prospect_id = ANY($1::text[])
                 ORDER BY created_at DESC
-            """, p['id'])
-            p['feedback_history'] = [dict(r) for r in feedback_rows]
+            """, prospect_ids)
+            feedback_by_id: Dict[str, List[Dict]] = {}
+            for row in feedback_rows:
+                pid = row["prospect_id"]
+                entry = {
+                    "feedback_type": row["feedback_type"],
+                    "comment": row["comment"],
+                    "created_at": row["created_at"],
+                    "manager_name": row["manager_name"],
+                }
+                feedback_by_id.setdefault(pid, []).append(entry)
+            for p in prospects:
+                p["feedback_history"] = feedback_by_id.get(p["id"], [])
+        else:
+            for p in prospects:
+                p["feedback_history"] = []
     
     return {
         "prospects": prospects,

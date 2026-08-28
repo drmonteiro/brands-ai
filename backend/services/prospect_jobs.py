@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
 
-from agents.graph import _get_app_with_postgres
 from agents.nodes.pipeline_timing import format_duration
 from services.currency import get_eur_usd_rate
 from services.database import city_has_results, get_city_stats, normalize_city
@@ -71,6 +70,9 @@ class ProspectJob:
 
 
 async def _execute_pipeline(job: ProspectJob) -> None:
+    # Lazy import — LangGraph/Exa/LangChain only load when a pipeline actually runs
+    from agents.graph import _get_app_with_postgres
+
     city = job.city
     start_time = time.time()
     try:

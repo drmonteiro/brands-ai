@@ -24,8 +24,6 @@ from services.database import (
 )
 from services.postgres import PostgresManager
 from data.lanca_clients import LANCA_CLIENTS, IDEAL_CLIENT_PROFILE
-from agents.nodes.utils import get_llm
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -206,6 +204,9 @@ async def clear_chat_history():
 
 @router.post("")
 async def process_chat(request: ChatRequest):
+    from agents.nodes.utils import get_llm
+    from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
     try:
         # ── 1. Save User Message to DB ──
         pool = await PostgresManager.get_pool()
@@ -315,7 +316,7 @@ REGRAS DE COMUNICAÇÃO:
         messages.append(HumanMessage(content=request.message))
 
         llm = get_llm(fast=False)
-        response = llm.invoke(messages)
+        response = await llm.ainvoke(messages)
         ai_content = response.content
 
         # ── 4. Save Assistant Message to DB ──

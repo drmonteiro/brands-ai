@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Bot, User, Loader2, Info, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { apiUrl } from "@/lib/apiBase";
 
 interface Message {
     role: "user" | "assistant";
@@ -47,14 +47,14 @@ export default function ChatDashboard() {
         const loadInitialData = async () => {
             try {
                 // 1. Fetch Cities
-                const citiesRes = await fetch(`${API_URL}/api/chat/cities`);
+                const citiesRes = await fetch(apiUrl("/api/chat/cities"));
                 if (citiesRes.ok) {
                     const data = await citiesRes.json();
                     setCities(data.cities || []);
                 }
 
                 // 2. Fetch History
-                const historyRes = await fetch(`${API_URL}/api/chat/history`);
+                const historyRes = await fetch(apiUrl("/api/chat/history"));
                 if (historyRes.ok) {
                     const data = await historyRes.json();
                     if (data.history && data.history.length > 0) {
@@ -102,7 +102,7 @@ export default function ChatDashboard() {
             // Build history (skip the first welcome message)
             const history = messages.slice(1).map((m) => ({ role: m.role, content: m.content }));
 
-            const response = await fetch(`${API_URL}/api/chat`, {
+            const response = await fetch(apiUrl("/api/chat"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -150,7 +150,7 @@ export default function ChatDashboard() {
         if (!confirm("Tens a certeza que queres eliminar todo o histórico da conversa?")) return;
         
         try {
-            const res = await fetch(`${API_URL}/api/chat/history`, { method: "DELETE" });
+            const res = await fetch(apiUrl("/api/chat/history"), { method: "DELETE" });
             if (res.ok) {
                 setMessages([
                     {

@@ -9,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from services.database import init_database
 from services.postgres import PostgresManager
-from routers import prospects, cities, analytics, workflow, email, export, chat, whatsapp
 
 # ============================================================================
 # LOGGING CONFIGURATION
@@ -78,13 +77,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register Routers
+# Core routers — lightweight imports for fast cold start
+from routers import prospects, cities, analytics, workflow, email, export
+
 app.include_router(workflow.router)
 app.include_router(prospects.router)
 app.include_router(cities.router)
 app.include_router(analytics.router)
 app.include_router(email.router)
 app.include_router(export.router)
+
+# Heavy routers (LangChain, Twilio) — loaded after core API
+from routers import chat, whatsapp
+
 app.include_router(chat.router)
 app.include_router(whatsapp.router)
 
