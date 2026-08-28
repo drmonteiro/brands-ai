@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import dynamic from "next/dynamic";
 import { Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { AppProviders } from "@/components/AppProviders";
@@ -18,6 +19,15 @@ const playfair = Playfair_Display({
   display: "swap",
 });
 
+const Sidebar = dynamic(
+  () => import("@/components/Sidebar").then((mod) => mod.Sidebar),
+  {
+    loading: () => (
+      <aside className="w-[72px] lg:w-[260px] bg-[#111111] h-screen flex-shrink-0 border-r border-white/[0.06]" />
+    ),
+  }
+);
+
 export const metadata: Metadata = {
   title: "Confeções Lança | Plataforma Comercial",
   description: "Plataforma de pesquisa e gestão comercial da Confeções Lança. Desde 1973.",
@@ -25,8 +35,6 @@ export const metadata: Metadata = {
     icon: "/lanca-logo.png",
   },
 };
-
-import { Sidebar } from "@/components/Sidebar";
 
 export default function RootLayout({
   children,

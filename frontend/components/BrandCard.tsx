@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useSession } from "next-auth/react";
+import { memo, useState, useCallback } from "react";
 import { toast } from "sonner";
 import {
   BrandLead,
   parseJsonArray,
   isHeadquartersInSearchCity,
 } from "@/lib/types";
+import { apiUrl } from "@/lib/apiBase";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -38,10 +38,10 @@ import { FeedbackModal } from "./FeedbackModal";
 interface BrandCardProps {
   brand: BrandLead;
   onSendEmail?: (brandName: string, brandData: any) => Promise<boolean>;
+  managerName?: string;
 }
 
-export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
-  const { data: session } = useSession();
+export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerName = "Comercial" }: BrandCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(brand.status || "new");
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent">("idle");
@@ -59,14 +59,13 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
     if (!feedbackState.type) return;
 
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${API_URL}/api/prospects/${brand.id}/feedback`, {
+      const response = await fetch(apiUrl(`/api/prospects/${brand.id}/feedback`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           feedback_type: feedbackState.type,
           comment,
-          manager_name: session?.user?.name || "Comercial", // Dynamic from NextAuth
+          manager_name: managerName,
         }),
       });
 
@@ -100,8 +99,7 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
     setCurrentStatus(newStatus);
     
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${API_URL}/api/prospects/${brand.id}/status`, {
+      const response = await fetch(apiUrl(`/api/prospects/${brand.id}/status`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
@@ -720,4 +718,4 @@ export function BrandCard({ brand, onSendEmail }: BrandCardProps) {
       )}
     </div>
   );
-}
+});
