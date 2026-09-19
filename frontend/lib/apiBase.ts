@@ -24,3 +24,18 @@ export function apiUrl(path: string): string {
   const p = path.startsWith("/") ? path : `/${path}`;
   return base ? `${base}${p}` : p;
 }
+
+/** Fetch with timeout — avoids infinite loading when backend is cold/sleeping. */
+export async function fetchWithTimeout(
+  path: string,
+  options: RequestInit = {},
+  timeoutMs = 25000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(apiUrl(path), { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}

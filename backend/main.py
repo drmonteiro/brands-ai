@@ -1,6 +1,7 @@
 """
 FastAPI Backend for Confeções Lança Lead Generation
 """
+import asyncio
 import logging
 import os
 import sys
@@ -49,14 +50,24 @@ def _cors_origins() -> list:
     return defaults
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+async def _init_database_background() -> None:
+    """Run migrations without blocking HTTP startup (Azure cold start)."""
     try:
         await init_database()
         logger.info("PostgreSQL database initialized")
     except Exception as e:
         logger.error("Database initialization failed: %s", e)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_task = asyncio.create_task(_init_database_background())
     yield
+    init_task.cancel()
+    try:
+        await init_task
+    except asyncio.CancelledError:
+        pass
     await PostgresManager.close()
     logger.info("PostgreSQL connection pool closed")
 
@@ -96,3 +107,9 @@ app.include_router(whatsapp.router)
 @app.get("/")
 async def root():
     return {"status": "healthy", "version": "1.1.0"}
+
+
+@app.get("/health")
+async def health():
+    """Lightweight probe — no DB, for Azure / load balancers."""
+    return {"status": "ok"}

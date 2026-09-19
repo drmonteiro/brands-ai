@@ -80,7 +80,10 @@ jobs:
               {"name": "POSTGRES_PORT",                   "value": "${{ secrets.POSTGRES_PORT }}",                   "slotSetting": false},
               {"name": "SYNC_DATABASE_URL",               "value": "${{ secrets.SYNC_DATABASE_URL }}",               "slotSetting": false},
               {"name": "FROM_EMAIL",                      "value": "${{ secrets.FROM_EMAIL }}",                      "slotSetting": false},
-              {"name": "LANGCHAIN_TRACING_V2",            "value": "false",                                          "slotSetting": false}
+              {"name": "LANGCHAIN_TRACING_V2",            "value": "false",                                          "slotSetting": false},
+              {"name": "CORS_ORIGINS",                    "value": "https://ambitious-coast-0f9176703.1.azurestaticapps.net", "slotSetting": false},
+              {"name": "WEBSITES_PORT",                   "value": "8000",                                           "slotSetting": false},
+              {"name": "SCM_DO_BUILD_DURING_DEPLOYMENT",  "value": "true",                                           "slotSetting": false}
             ]
 
   deploy:

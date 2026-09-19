@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
@@ -21,7 +21,7 @@ import { FilterPanel, ProspectFilters } from "@/components/FilterPanel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BrandLead } from "@/lib/types";
-import { apiUrl } from "@/lib/apiBase";
+import { apiUrl, fetchWithTimeout } from "@/lib/apiBase";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 const BrandCard = dynamic(
@@ -70,16 +70,48 @@ export default function SavedCitiesPage() {
     const debouncedFilters = useDebouncedValue(activeFilters, 300);
     const [cityToDelete, setCityToDelete] = useState<string | null>(null);
 
+    const fetchCities = useCallback(async (silent = false) => {
+        const hasCache =
+            (readCitiesCache()?.length ?? 0) > 0;
+        if (!silent && !hasCache) setIsLoadingCities(true);
+
+        let lastError: unknown;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                const response = await fetchWithTimeout("/api/cities", {}, attempt === 0 ? 25000 : 45000);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                const cities: CityData[] = data.cities || [];
+                setSavedCities(cities);
+                try { sessionStorage.setItem(CITIES_CACHE_KEY, JSON.stringify(cities)); } catch { /* ignore */ }
+                setIsLoadingCities(false);
+                return;
+            } catch (e) {
+                lastError = e;
+                if (attempt === 0) {
+                    await new Promise((r) => setTimeout(r, 1500));
+                }
+            }
+        }
+
+        console.error("[saved-cities] cities fetch failed:", lastError);
+        if (!hasCache) {
+            toast.error("Não foi possível carregar as cidades guardadas. O servidor pode estar a acordar — tenta outra vez.");
+            setSavedCities([]);
+        }
+        setIsLoadingCities(false);
+    }, []);
+
     useEffect(() => {
         const cached = readCitiesCache();
         if (cached?.length) {
             setSavedCities(cached);
             setIsLoadingCities(false);
-            const timer = setTimeout(() => fetchCities(), 1500);
-            return () => clearTimeout(timer);
+            fetchCities(true);
+            return;
         }
-        fetchCities();
-    }, []);
+        fetchCities(false);
+    }, [fetchCities]);
 
     useEffect(() => {
         if (!selectedCity) {
@@ -117,29 +149,6 @@ export default function SavedCitiesPage() {
         load();
         return () => { cancelled = true; };
     }, [selectedCity, debouncedFilters]);
-
-    const fetchCities = async () => {
-        const hasCache =
-            savedCities.length > 0 || (readCitiesCache()?.length ?? 0) > 0;
-        // With cached data we revalidate silently in the background.
-        if (!hasCache) setIsLoadingCities(true);
-        try {
-            const response = await fetch(apiUrl("/api/cities"));
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-            const cities: CityData[] = data.cities || [];
-            setSavedCities(cities);
-            try { sessionStorage.setItem(CITIES_CACHE_KEY, JSON.stringify(cities)); } catch { /* ignore */ }
-        } catch (e) {
-            console.error("[saved-cities] cities fetch failed:", e);
-            if (!hasCache) {
-                toast.error("Não foi possível carregar as cidades guardadas.");
-                setSavedCities([]);
-            }
-        } finally {
-            setIsLoadingCities(false);
-        }
-    };
 
     const handleSendEmail = async (brandName: string, brandData: any) => {
         const contactEmail = brandData?.contact_email || brandData?.contactEmail;

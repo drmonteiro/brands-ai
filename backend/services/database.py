@@ -660,6 +660,17 @@ async def get_city_stats(city: str) -> Dict:
     }
 
 
+def _serialize_city_row(row) -> Dict:
+    data = dict(row)
+    for key in ("avg_score", "top_score"):
+        if key in data and data[key] is not None:
+            data[key] = float(data[key])
+    for key in ("total_prospects", "new_count", "contacted_count", "converted_count"):
+        if key in data and data[key] is not None:
+            data[key] = int(data[key])
+    return data
+
+
 async def get_all_searched_cities() -> List[Dict]:
     """
     Get all cities that have been searched with their stats.
@@ -679,7 +690,7 @@ async def get_all_searched_cities() -> List[Dict]:
             GROUP BY city
             ORDER BY total_prospects DESC
         """)
-        return [dict(row) for row in rows]
+        return [_serialize_city_row(row) for row in rows]
 
 
 async def get_existing_urls_for_city(city: str) -> set:

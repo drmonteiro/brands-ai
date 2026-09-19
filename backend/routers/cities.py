@@ -1,15 +1,21 @@
 """
 Router for City Statistics
 """
-from fastapi import APIRouter
+import logging
+from fastapi import APIRouter, HTTPException
 from services.database import get_all_searched_cities, get_city_stats, get_prospects_by_city, delete_city_prospects
 
+logger = logging.getLogger("router.cities")
 router = APIRouter(prefix="/api/cities", tags=["cities"])
 
 @router.get("")
 async def list_cities():
-    cities = await get_all_searched_cities()
-    return {"cities": cities, "total": len(cities)}
+    try:
+        cities = await get_all_searched_cities()
+        return {"cities": cities, "total": len(cities)}
+    except Exception as e:
+        logger.exception("Failed to list cities")
+        raise HTTPException(status_code=503, detail="Database unavailable") from e
 
 @router.get("/{city}/stats")
 async def city_statistics(city: str):
