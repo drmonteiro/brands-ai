@@ -23,8 +23,6 @@ from twilio.twiml.messaging_response import MessagingResponse
 from config import Config
 from services.database import get_prospects_by_city, get_all_prospects, get_all_searched_cities, get_dashboard_stats
 from data.lanca_clients import LANCA_CLIENTS, IDEAL_CLIENT_PROFILE
-from agents.nodes.utils import get_llm
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from routers.chat import build_prospect_context, build_client_context, SYSTEM_PROMPT_TEMPLATE
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -141,7 +139,9 @@ async def whatsapp_webhook(request: Request):
 
 async def process_whatsapp_message(message: str, session: dict) -> str:
     """Process a WhatsApp message using the same RAG pipeline as the web chat."""
-    
+    from agents.nodes.utils import get_llm
+    from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
     city = session.get("city")
     
     # 1. Fetch prospect data
@@ -201,8 +201,8 @@ REGRAS ESPECIAIS PARA WHATSAPP:
     
     # 5. Generate response (full model for quality)
     llm = get_llm(fast=False)
-    response = llm.invoke(messages)
-    
+    response = await llm.ainvoke(messages)
+
     return response.content
 
 

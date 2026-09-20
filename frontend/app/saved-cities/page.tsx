@@ -65,40 +65,38 @@ export default function SavedCitiesPage() {
     const [prospects, setProspects] = useState<BrandLead[]>([]);
     const [selectedCity, setSelectedCity] = useState<string | null>(null);
     const [isLoadingCities, setIsLoadingCities] = useState(true);
+    const [citiesError, setCitiesError] = useState<string | null>(null);
     const [isLoadingProspects, setIsLoadingProspects] = useState(false);
     const [activeFilters, setActiveFilters] = useState<ProspectFilters>({});
     const debouncedFilters = useDebouncedValue(activeFilters, 300);
     const [cityToDelete, setCityToDelete] = useState<string | null>(null);
 
     const fetchCities = useCallback(async (silent = false) => {
-        const hasCache =
-            (readCitiesCache()?.length ?? 0) > 0;
+        const hasCache = (readCitiesCache()?.length ?? 0) > 0;
         if (!silent && !hasCache) setIsLoadingCities(true);
+        setCitiesError(null);
 
         let lastError: unknown;
         for (let attempt = 0; attempt < 2; attempt++) {
             try {
-                const response = await fetchWithTimeout("/api/cities", {}, attempt === 0 ? 25000 : 45000);
+                const response = await fetchWithTimeout("/api/cities", {}, attempt === 0 ? 12000 : 15000);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 const cities: CityData[] = data.cities || [];
                 setSavedCities(cities);
+                setCitiesError(null);
                 try { sessionStorage.setItem(CITIES_CACHE_KEY, JSON.stringify(cities)); } catch { /* ignore */ }
                 setIsLoadingCities(false);
                 return;
             } catch (e) {
                 lastError = e;
-                if (attempt === 0) {
-                    await new Promise((r) => setTimeout(r, 1500));
-                }
+                if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
             }
         }
 
         console.error("[saved-cities] cities fetch failed:", lastError);
-        if (!hasCache) {
-            toast.error("Não foi possível carregar as cidades guardadas. O servidor pode estar a acordar — tenta outra vez.");
-            setSavedCities([]);
-        }
+        if (!hasCache) setSavedCities([]);
+        setCitiesError("Servidor offline ou a acordar. Clica em Tentar novamente.");
         setIsLoadingCities(false);
     }, []);
 
@@ -247,6 +245,21 @@ export default function SavedCitiesPage() {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    ) : citiesError ? (
+                        <div className="text-center py-12 px-4">
+                            <Database className="h-6 w-6 text-muted-foreground/25 mx-auto mb-2" />
+                            <p className="text-[12px] text-muted-foreground mb-4">{citiesError}</p>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => fetchCities(false)}
+                                className="h-8 text-[12px] gap-1.5"
+                            >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                Tentar novamente
+                            </Button>
                         </div>
                     ) : safeCities.length === 0 ? (
                         <div className="text-center py-16 px-4">

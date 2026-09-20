@@ -98,11 +98,13 @@ app.include_router(analytics.router)
 app.include_router(email.router)
 app.include_router(export.router)
 
-# Heavy routers (LangChain, Twilio) — loaded after core API
-from routers import chat, whatsapp
+# Heavy routers (LangChain, Twilio) — import deferred to keep worker boot fast
+def _register_heavy_routers() -> None:
+    from routers import chat, whatsapp
+    app.include_router(chat.router)
+    app.include_router(whatsapp.router)
 
-app.include_router(chat.router)
-app.include_router(whatsapp.router)
+_register_heavy_routers()
 
 @app.get("/")
 async def root():
