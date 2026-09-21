@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'backend/**'
+      - '.github/workflows/main_app-web-lanca.yml'
   workflow_dispatch:
 
 jobs:
@@ -56,6 +57,18 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Configure startup command (publish-profile deploy does not support startup-command)
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            RG=$(az webapp list --query "[?name=='lanca-ai-backend-api'].resourceGroup | [0]" -o tsv)
+            if [ -z "$RG" ]; then echo "ERROR: web app not found"; exit 1; fi
+            az webapp config set \
+              --name lanca-ai-backend-api \
+              --resource-group "$RG" \
+              --startup-file "bash startup.sh"
+            echo "Startup command configured in resource group: $RG"
+
       - name: Sync Application Settings to Azure
         uses: azure/appservice-settings@v1
         with:
@@ -104,4 +117,3 @@ jobs:
           app-name: 'lanca-ai-backend-api'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          startup-command: 'bash startup.sh'
