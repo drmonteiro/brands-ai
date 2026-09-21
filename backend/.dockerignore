@@ -1,0 +1,10 @@
+antenv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+chroma_db/
+*.txt.bak
+.env
+.env.*

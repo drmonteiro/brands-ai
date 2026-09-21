@@ -9,73 +9,24 @@ on:
       - '.github/workflows/main_app-web-lanca.yml'
   workflow_dispatch:
 
+env:
+  IMAGE_NAME: lanca-backend-api
+  WEBAPP_NAME: lanca-ai-backend-api
+  RESOURCE_GROUP: lanca-ai-rg
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        working-directory: ./backend
-        run: |
-          python -m venv antenv
-          source antenv/bin/activate
-          pip install -r requirements.txt
-
-      - name: Upload artifact for deployment
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-app
-          path: |
-            ./backend
-            !./backend/venv/
-            !./backend/__pycache__/
-            !./backend/**/__pycache__/
-            !./backend/chroma_db/
-            !./backend/tests/
-            !./backend/.pytest_cache/
-
-  # ============================================================
-  # SYNC ENV VARS → AZURE APP SETTINGS
-  # ============================================================
-  # Para adicionar uma nova variável de ambiente:
-  #   1. Vai a GitHub → Settings → Secrets and variables → Actions
-  #   2. Clica "New repository secret" e adiciona o valor
-  #   3. Adiciona uma linha nova no app-settings-json abaixo:
-  #      {"name":"NOVA_VAR","value":"${{ secrets.NOVA_VAR }}","slotSetting":false}
-  # ============================================================
   sync-env-vars:
     runs-on: ubuntu-latest
-    needs: build
-
     steps:
       - name: Login to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Configure startup command (publish-profile deploy does not support startup-command)
-        uses: azure/cli@v2
-        with:
-          inlineScript: |
-            RG=$(az webapp list --query "[?name=='lanca-ai-backend-api'].resourceGroup | [0]" -o tsv)
-            if [ -z "$RG" ]; then echo "ERROR: web app not found"; exit 1; fi
-            az webapp config set \
-              --name lanca-ai-backend-api \
-              --resource-group "$RG" \
-              --startup-file "bash startup.sh"
-            echo "Startup command configured in resource group: $RG"
-
       - name: Sync Application Settings to Azure
         uses: azure/appservice-settings@v1
         with:
-          app-name: 'lanca-ai-backend-api'
+          app-name: ${{ env.WEBAPP_NAME }}
           app-settings-json: |
             [
               {"name": "AZURE_OPENAI_API_KEY",            "value": "${{ secrets.AZURE_OPENAI_API_KEY }}",            "slotSetting": false},
@@ -99,24 +50,62 @@ jobs:
               {"name": "LANGCHAIN_TRACING_V2",            "value": "false",                                          "slotSetting": false},
               {"name": "CORS_ORIGINS",                    "value": "https://ambitious-coast-0f9176703.1.azurestaticapps.net", "slotSetting": false},
               {"name": "WEBSITES_PORT",                   "value": "8000",                                           "slotSetting": false},
-              {"name": "SCM_DO_BUILD_DURING_DEPLOYMENT",  "value": "false",                                          "slotSetting": false},
-              {"name": "WEBSITE_HEALTHCHECK_MAXPINGFAILURES", "value": "10",                                         "slotSetting": false},
-              {"name": "WEBSITE_HTTPLOGGING_RETENTION_DAYS",  "value": "3",                                          "slotSetting": false}
+              {"name": "PORT",                            "value": "8000",                                           "slotSetting": false},
+              {"name": "WEBSITES_CONTAINER_START_TIME_LIMIT", "value": "1800",                                       "slotSetting": false}
             ]
 
   deploy:
     runs-on: ubuntu-latest
     needs: sync-env-vars
+    permissions:
+      contents: read
 
     steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v4
-        with:
-          name: python-app
+      - uses: actions/checkout@v4
 
-      - name: 'Deploy to Azure Web App'
-        uses: azure/webapps-deploy@v3
+      - name: Login to Azure
+        uses: azure/login@v2
         with:
-          app-name: 'lanca-ai-backend-api'
-          slot-name: 'Production'
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to Azure Container Registry
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Build and push Docker image
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        run: |
+          set -euo pipefail
+          REGISTRY="${ACR_NAME}.azurecr.io"
+          IMAGE="${REGISTRY}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          docker build -t "$IMAGE" -t "${REGISTRY}/${{ env.IMAGE_NAME }}:latest" ./backend
+          docker push "$IMAGE"
+          docker push "${REGISTRY}/${{ env.IMAGE_NAME }}:latest"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Configure Web App to use container
+        uses: azure/cli@v2
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        with:
+          inlineScript: |
+            set -euo pipefail
+            REGISTRY="${ACR_NAME}.azurecr.io"
+            IMAGE="${REGISTRY}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+            ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
+            ACR_PASS=$(az acr credential show --name "$ACR_NAME" --query passwords[0].value -o tsv)
+            az webapp config container set \
+              --name ${{ env.WEBAPP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --container-image-name "$IMAGE" \
+              --container-registry-url "https://$REGISTRY" \
+              --container-registry-user "$ACR_USER" \
+              --container-registry-password "$ACR_PASS"
+            az webapp config appsettings set \
+              --name ${{ env.WEBAPP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --settings WEBSITES_PORT=8000 PORT=8000
+            az webapp restart \
+              --name ${{ env.WEBAPP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }}
+            echo "Deployed $IMAGE"
