@@ -98,11 +98,15 @@ app.include_router(analytics.router)
 app.include_router(email.router)
 app.include_router(export.router)
 
-# Heavy routers (LangChain, Twilio) — import deferred to keep worker boot fast
+# Heavy routers (LangChain, Twilio) — optional; core API must start even if these fail
 def _register_heavy_routers() -> None:
-    from routers import chat, whatsapp
-    app.include_router(chat.router)
-    app.include_router(whatsapp.router)
+    try:
+        from routers import chat, whatsapp
+        app.include_router(chat.router)
+        app.include_router(whatsapp.router)
+        logger.info("Chat/WhatsApp routers registered")
+    except Exception as e:
+        logger.error("Chat/WhatsApp routers disabled: %s", e)
 
 _register_heavy_routers()
 

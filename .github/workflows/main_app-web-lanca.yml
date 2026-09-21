@@ -34,9 +34,12 @@ jobs:
           name: python-app
           path: |
             ./backend
-            !./backend/antenv/
             !./backend/venv/
             !./backend/__pycache__/
+            !./backend/**/__pycache__/
+            !./backend/chroma_db/
+            !./backend/tests/
+            !./backend/.pytest_cache/
 
   # ============================================================
   # SYNC ENV VARS → AZURE APP SETTINGS
@@ -96,7 +99,7 @@ jobs:
               {"name": "LANGCHAIN_TRACING_V2",            "value": "false",                                          "slotSetting": false},
               {"name": "CORS_ORIGINS",                    "value": "https://ambitious-coast-0f9176703.1.azurestaticapps.net", "slotSetting": false},
               {"name": "WEBSITES_PORT",                   "value": "8000",                                           "slotSetting": false},
-              {"name": "SCM_DO_BUILD_DURING_DEPLOYMENT",  "value": "true",                                           "slotSetting": false},
+              {"name": "SCM_DO_BUILD_DURING_DEPLOYMENT",  "value": "false",                                          "slotSetting": false},
               {"name": "WEBSITE_HEALTHCHECK_MAXPINGFAILURES", "value": "10",                                         "slotSetting": false},
               {"name": "WEBSITE_HTTPLOGGING_RETENTION_DAYS",  "value": "3",                                          "slotSetting": false}
             ]
