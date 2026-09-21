@@ -10,7 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV PORT=8000
-EXPOSE 8000
+# Azure App Service containers expect port 8080 by default
+ENV PORT=8080
+EXPOSE 8080
 
-CMD ["sh", "-c", "gunicorn -w 1 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:${PORT} --timeout 600 --access-logfile - --error-logfile -"]
+CMD ["sh", "-c", "gunicorn -w 1 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:${PORT:-8080} --timeout 600 --access-logfile - --error-logfile -"]
