@@ -94,11 +94,9 @@ jobs:
             IMAGE="${REGISTRY}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
             ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
             ACR_PASS=$(az acr credential show --name "$ACR_NAME" --query passwords[0].value -o tsv)
-            # Clear legacy code-deploy startup command that breaks containers
             az webapp config set \
               --name ${{ env.WEBAPP_NAME }} \
               --resource-group ${{ env.RESOURCE_GROUP }} \
-              --startup-file "" \
               --always-on true
             az webapp config container set \
               --name ${{ env.WEBAPP_NAME }} \
@@ -107,6 +105,15 @@ jobs:
               --container-registry-url "https://$REGISTRY" \
               --container-registry-user "$ACR_USER" \
               --container-registry-password "$ACR_PASS"
+            # Clear the legacy code-deploy startup command ("bash startup.sh").
+            # `az webapp config set --startup-file ""` is a no-op (the CLI treats an
+            # empty string as "unset"), so the value survived and overrode the image
+            # CMD, making the container exit at boot. Patch siteConfig via ARM instead.
+            SUB_ID=$(az account show --query id -o tsv)
+            az rest --method PATCH \
+              --url "https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.WEBAPP_NAME }}/config/web?api-version=2022-03-01" \
+              --body '{"properties":{"appCommandLine":""}}'
+
             az webapp config appsettings set \
               --name ${{ env.WEBAPP_NAME }} \
               --resource-group ${{ env.RESOURCE_GROUP }} \
@@ -114,4 +121,13 @@ jobs:
             az webapp restart \
               --name ${{ env.WEBAPP_NAME }} \
               --resource-group ${{ env.RESOURCE_GROUP }}
+            APP_CMD=$(az webapp config show \
+              --name ${{ env.WEBAPP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --query appCommandLine -o tsv)
+            if [ -n "$APP_CMD" ]; then
+              echo "ERROR: startup command still set to '$APP_CMD'; it overrides the image CMD." >&2
+              exit 1
+            fi
+
             echo "Deployed $IMAGE"

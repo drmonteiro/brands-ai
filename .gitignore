@@ -8,6 +8,8 @@ frontend/.env.local
 node_modules/
 backend/venv/
 backend/__pycache__/
+__pycache__/
+*.pyc
 .pytest_cache/
 
 # Compilação Next.js
