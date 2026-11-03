@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Bot, User, Loader2, Info, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { apiUrl } from "@/lib/apiBase";
+import { apiFetch } from "@/lib/apiBase";
 
 interface Message {
     role: "user" | "assistant";
@@ -47,14 +47,14 @@ export default function ChatDashboard() {
         const loadInitialData = async () => {
             try {
                 // 1. Fetch Cities
-                const citiesRes = await fetch(apiUrl("/api/chat/cities"));
+                const citiesRes = await apiFetch("/api/chat/cities");
                 if (citiesRes.ok) {
                     const data = await citiesRes.json();
                     setCities(data.cities || []);
                 }
 
                 // 2. Fetch History
-                const historyRes = await fetch(apiUrl("/api/chat/history"));
+                const historyRes = await apiFetch("/api/chat/history");
                 if (historyRes.ok) {
                     const data = await historyRes.json();
                     if (data.history && data.history.length > 0) {
@@ -102,7 +102,7 @@ export default function ChatDashboard() {
             // Build history (skip the first welcome message)
             const history = messages.slice(1).map((m) => ({ role: m.role, content: m.content }));
 
-            const response = await fetch(apiUrl("/api/chat"), {
+            const response = await apiFetch("/api/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -150,7 +150,7 @@ export default function ChatDashboard() {
         if (!confirm("Tens a certeza que queres eliminar todo o histórico da conversa?")) return;
         
         try {
-            const res = await fetch(apiUrl("/api/chat/history"), { method: "DELETE" });
+            const res = await apiFetch("/api/chat/history", { method: "DELETE" });
             if (res.ok) {
                 setMessages([
                     {
@@ -169,22 +169,27 @@ export default function ChatDashboard() {
         }
     };
 
-    // Simple markdown-like rendering (bold, bullets, links)
+    // React nodes rather than raw HTML: replies can quote text scraped from websites,
+    // which must never run as code in the user's browser.
+    const renderBold = (line: string) =>
+        line.split(/\*\*(.*?)\*\*/g).map((part, i) =>
+            i % 2 === 1 ? <strong key={i}>{part}</strong> : part
+        );
+
+    // Simple markdown-like rendering (bold, bullets)
     const renderContent = (text: string) => {
         return text.split("\n").map((line, i) => {
-            // Bold: **text**
-            const rendered = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            // Bullet points
-            if (rendered.trim().startsWith("•") || rendered.trim().startsWith("-")) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("•") || trimmed.startsWith("-")) {
                 return (
                     <div key={i} className="flex gap-2 ml-1 my-0.5">
                         <span className="text-[#F5C518] flex-shrink-0 mt-0.5">•</span>
-                        <span dangerouslySetInnerHTML={{ __html: rendered.replace(/^[•\-]\s*/, "") }} />
+                        <span>{renderBold(trimmed.replace(/^[•\-]\s*/, ""))}</span>
                     </div>
                 );
             }
-            if (rendered.trim() === "") return <br key={i} />;
-            return <p key={i} className="my-0.5" dangerouslySetInnerHTML={{ __html: rendered }} />;
+            if (trimmed === "") return <br key={i} />;
+            return <p key={i} className="my-0.5">{renderBold(line)}</p>;
         });
     };
 

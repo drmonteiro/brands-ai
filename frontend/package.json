@@ -16,6 +16,7 @@
     "better-sqlite3": "^11.0.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
+    "jose": "^4.15.9",
     "langchain": "^0.3.0",
     "lucide-react": "^0.460.0",
     "next": "^15.1.0",

@@ -17,10 +17,11 @@ Commands:
   - "ajuda" → Shows available commands
 """
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from twilio.rest import Client as TwilioClient
 from twilio.twiml.messaging_response import MessagingResponse
 from config import Config
+from services.auth import verify_twilio_signature
 from services.database import get_prospects_by_city, get_all_prospects, get_all_searched_cities, get_dashboard_stats
 from data.lanca_clients import LANCA_CLIENTS, IDEAL_CLIENT_PROFILE
 from routers.chat import build_prospect_context, build_client_context, SYSTEM_PROMPT_TEMPLATE
@@ -55,7 +56,7 @@ def cleanup_old_sessions():
 # WHATSAPP WEBHOOK — Receives messages from Twilio
 # ============================================================================
 
-@router.post("/webhook")
+@router.post("/webhook", dependencies=[Depends(verify_twilio_signature)])
 async def whatsapp_webhook(request: Request):
     """
     Twilio sends POST requests here when a user sends a WhatsApp message.
