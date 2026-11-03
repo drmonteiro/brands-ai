@@ -5,8 +5,8 @@
 @layer base {
   :root {
     /* Confeções Lança Brand System — Professional */
-    --background: 0 0% 97%;
-    --foreground: 0 0% 8%;
+    --background: 40 25% 97%;
+    --foreground: 30 8% 9%;
 
     --card: 0 0% 100%;
     --card-foreground: 0 0% 8%;
@@ -14,14 +14,14 @@
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 8%;
 
-    --primary: 43 91% 48%;
+    --primary: 45 68% 47%;
     --primary-foreground: 0 0% 8%;
 
     --secondary: 0 0% 95%;
     --secondary-foreground: 0 0% 18%;
 
     --muted: 0 0% 95%;
-    --muted-foreground: 0 0% 48%;
+    --muted-foreground: 30 5% 37%;
 
     --accent: 43 85% 95%;
     --accent-foreground: 43 91% 30%;
@@ -29,11 +29,11 @@
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 43 91% 48%;
+    --border: 38 14% 87%;
+    --input: 38 14% 87%;
+    --ring: 45 100% 24%;
 
-    --radius: 0.5rem;
+    --radius: 0.375rem;
 
     --gold: 43 91% 48%;
     --gold-light: 43 91% 95%;
@@ -48,7 +48,7 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans), system-ui, sans-serif;
     font-feature-settings: "ss01", "cv01";
     letter-spacing: -0.01em;
   }
@@ -61,12 +61,11 @@
 
 @layer utilities {
   .card-lanca {
-    @apply bg-white rounded-lg border border-border;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    @apply bg-white rounded border border-border;
     transition: box-shadow 0.2s ease, border-color 0.2s ease;
   }
   .card-lanca:hover {
-    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    border-color: hsl(38 20% 72%);
   }
 
   .gold-accent {

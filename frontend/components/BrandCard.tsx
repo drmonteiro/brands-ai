@@ -1,40 +1,16 @@
 "use client";
 
-import { memo, useState, useCallback } from "react";
+import { memo, useState } from "react";
 import { toast } from "sonner";
-import {
-  BrandLead,
-  parseJsonArray,
-  isHeadquartersInSearchCity,
-  parseLinkedInContacts,
-} from "@/lib/types";
+import { ChevronDown, ChevronUp, Globe, Linkedin, MapPin, RefreshCw, Search, ThumbsDown, ThumbsUp } from "lucide-react";
 import { apiFetch } from "@/lib/apiBase";
+import { getContacts, getLocation, getPeopleSearchUrl, getWhyItFits } from "@/lib/lead";
+import { BrandLead, parseLinkedInContacts } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Globe,
-  Mail,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  ChevronLeft,
-  ChevronRight,
-  MapPin,
-  Phone,
-  RefreshCw,
-  Search,
-  Store,
-  TrendingUp,
-  Tag,
-  Linkedin,
-  Star,
-  ThumbsUp,
-  ThumbsDown,
-  MessageSquare,
-  AlertTriangle,
-  Building2,
-} from "lucide-react";
 import { FeedbackModal } from "./FeedbackModal";
+import { LeadContacts } from "./lead/LeadContacts";
+import { LeadDetails } from "./lead/LeadDetails";
+import { LeadFacts } from "./lead/LeadFacts";
 import { LinkedInMessageModal } from "./LinkedInMessageModal";
 
 interface BrandCardProps {
@@ -42,45 +18,60 @@ interface BrandCardProps {
   managerName?: string;
 }
 
+type FeedbackType = "up" | "down";
+
+const STATUS_OPTIONS = [
+  { value: "new", label: "Novo" },
+  { value: "contacted", label: "Contactado" },
+  { value: "converted", label: "Convertido" },
+  { value: "rejected", label: "Rejeitado" },
+];
+
 export const BrandCard = memo(function BrandCard({ brand, managerName = "Comercial" }: BrandCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [currentStatus, setCurrentStatus] = useState(brand.status || "new");
+  const [status, setStatus] = useState(brand.status || "new");
   const [showLinkedInModal, setShowLinkedInModal] = useState(false);
   const [isFindingContacts, setIsFindingContacts] = useState(false);
   // Result of an on-demand lookup, layered over the lead from the list.
   const [lookupResult, setLookupResult] = useState<Partial<BrandLead> | null>(null);
-  const [feedbackState, setFeedbackState] = useState<{
-    showModal: boolean;
-    type: "up" | "down" | null;
-    status: "idle" | "success";
-  }>({
-    showModal: false,
-    type: null,
-    status: "idle",
-  });
+  const [feedbackModal, setFeedbackModal] = useState<FeedbackType | null>(null);
+  const [feedbackSent, setFeedbackSent] = useState<FeedbackType | null>(null);
+
+  const lead: BrandLead = lookupResult ? { ...brand, ...lookupResult } : brand;
+  const location = getLocation(lead);
+  const why = getWhyItFits(lead);
+  const contacts = getContacts(lead);
+  const websiteUrl = lead.website_url || lead.websiteUrl || "";
+
+  const handleStatusChange = async (newStatus: string) => {
+    const previous = status;
+    setStatus(newStatus);
+    try {
+      const response = await apiFetch(`/api/prospects/${brand.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      toast.success(`Estado: ${STATUS_OPTIONS.find((o) => o.value === newStatus)?.label}`);
+    } catch {
+      setStatus(previous);
+      toast.error("Não foi possível atualizar o estado.");
+    }
+  };
 
   const handleFeedbackSubmit = async (comment: string) => {
-    if (!feedbackState.type) return;
-
-    try {
-      const response = await apiFetch(`/api/prospects/${brand.id}/feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          feedback_type: feedbackState.type,
-          comment,
-          manager_name: managerName,
-        }),
-      });
-
-      if (response.ok) {
-        setFeedbackState(prev => ({ ...prev, status: "success", showModal: false }));
-        // Close modal is handled by the component's onClose calling setIsOpen(false) 
-        // but we manage it here since we are calling setIsSubmitting(false) inside onSubmit
-      }
-    } catch (error) {
-      console.error("Error submitting feedback:", error);
+    if (!feedbackModal) return;
+    const response = await apiFetch(`/api/prospects/${brand.id}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feedback_type: feedbackModal, comment, manager_name: managerName }),
+    });
+    if (!response.ok) {
+      toast.error("Não foi possível guardar o feedback.");
+      return;
     }
+    setFeedbackSent(feedbackModal);
   };
 
   const handleFindContacts = async () => {
@@ -88,17 +79,14 @@ export const BrandCard = memo(function BrandCard({ brand, managerName = "Comerci
     try {
       const response = await apiFetch(`/api/prospects/${brand.id}/linkedin-contacts`, { method: "POST" });
       if (!response.ok) {
-        const err = await response.json().catch(() => null);
-        throw new Error(err?.detail);
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.detail);
       }
       const updated: BrandLead = await response.json();
       setLookupResult(updated);
       const found = parseLinkedInContacts(updated.linkedin_contacts).length;
-      if (found > 0) {
-        toast.success(`${found} contacto${found > 1 ? "s" : ""} encontrado${found > 1 ? "s" : ""}.`);
-      } else {
-        toast.info("Sem perfis verificados. Podes pesquisar diretamente no LinkedIn.");
-      }
+      if (found > 0) toast.success(`${found} contacto${found > 1 ? "s" : ""} encontrado${found > 1 ? "s" : ""}.`);
+      else toast.info("Sem perfis verificados. Podes pesquisar diretamente no LinkedIn.");
     } catch (error) {
       toast.error(error instanceof Error && error.message ? error.message : "Não foi possível procurar contactos.");
     } finally {
@@ -106,674 +94,141 @@ export const BrandCard = memo(function BrandCard({ brand, managerName = "Comerci
     }
   };
 
-  const handleStatusChange = async (newStatus: string) => {
-    const previousStatus = currentStatus;
-    setCurrentStatus(newStatus);
-    
-    try {
-      const response = await apiFetch(`/api/prospects/${brand.id}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      
-      if (!response.ok) throw new Error("Failed to update status");
-      toast.success(`Estado atualizado para ${newStatus}`);
-    } catch (error) {
-      setCurrentStatus(previousStatus);
-      toast.error("Erro ao atualizar estado da marca");
-    }
-  };
-
-  // Support both snake_case (API) and camelCase (legacy) field names
-  const websiteUrl = brand.website_url || brand.websiteUrl || "";
-  const storeCount = brand.store_count ?? brand.storeCount ?? 0;
-  const priceEUR = brand.avg_suit_price_eur ?? brand.avgSuitPriceEUR;
-  const priceUSD = brand.averageSuitPriceUSD;
-  const rawCity = brand.city || "";
-  const city = rawCity.charAt(0).toUpperCase() + rawCity.slice(1);
-  const country = brand.country || brand.originCountry || "";
-  const description = brand.detailed_description || brand.detailedDescription || brand.company_overview || brand.companyOverview || "";
-  const fitScore = brand.fit_score ?? brand.fitScore ?? 0;
-  const finalScore = brand.final_score ?? 0;
-  const contactSource: BrandLead = lookupResult ? { ...brand, ...lookupResult } : brand;
-  const contactName = contactSource.contact_name || brand.contactName || "";
-  const contactRole = contactSource.contact_role || brand.contactRole || "";
-  const contactEmail = brand.contact_email || brand.contactEmail || "";
-  const contactPhone = brand.contact_phone || brand.contactPhone || "";
-  const contactLinkedin = contactSource.contact_linkedin || brand.contactLinkedin || "";
-  const contactsChecked = Boolean(contactSource.linkedin_contacts_checked_at);
-  const brandStyle = brand.brand_style || "";
-  const businessModel = brand.business_model || "";
-  const mostSimilarClient = brand.most_similar_client || "";
-  const similarityExplanation = brand.similarity_explanation || "";
-  const storeLocations = parseJsonArray(brand.store_locations || brand.storeLocations);
-  const materialComposition = parseJsonArray(brand.material_composition);
-  const madeToMeasure = brand.made_to_measure ?? false;
-  const headquartersAddress = brand.headquarters_address || "";
-  const headquartersCity = brand.headquarters_city || brand.headquartersCity || "";
-  const headquartersConfidence = brand.headquarters_confidence || brand.headquartersConfidence || "unknown";
-  const localStoreAddress = brand.local_store_address || brand.localStoreAddress || "";
-  const cityPresenceType = brand.city_presence_type || brand.cityPresenceType || "unknown";
-  const storeCountConfidence = brand.store_count_confidence || brand.storeCountConfidence || "unknown";
-
-  const hqInSearchCity = isHeadquartersInSearchCity(
-    headquartersCity,
-    rawCity,
-    cityPresenceType
+  const feedbackButton = (type: FeedbackType, label: string, Icon: typeof ThumbsUp, active: string) => (
+    <button
+      onClick={() => setFeedbackModal(type)}
+      aria-label={label}
+      title={label}
+      className={`rounded p-1.5 transition-colors hover:bg-muted ${
+        feedbackSent === type ? active : "text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      <Icon className="h-4 w-4" />
+    </button>
   );
-  const isStoreOnlyInSearchCity =
-    cityPresenceType === "store" ||
-    (cityPresenceType === "showroom" && !hqInSearchCity);
 
-  const presenceBadge: Record<
-    string,
-    { label: string; className: string }
-  > = {
-    hq: {
-      label: "Sede na cidade",
-      className: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    },
-    store: {
-      label: "Só loja na cidade",
-      className: "bg-amber-100 text-amber-900 border-amber-200",
-    },
-    showroom: {
-      label: "Showroom",
-      className: "bg-amber-50 text-amber-800 border-amber-200",
-    },
-    unknown: { label: "", className: "" },
-  };
-  const presence = presenceBadge[cityPresenceType];
-
-  const storeConfidenceLabel: Record<string, { text: string; className: string }> = {
-    verified: { text: "confirmado", className: "bg-emerald-100 text-emerald-700" },
-    estimated: { text: "estimado", className: "bg-amber-100 text-amber-700" },
-    uncertain: { text: "aprox.", className: "bg-muted text-muted-foreground" },
-    unknown: { text: "", className: "" },
-  };
-
-  // Determine fit level from fit_score
-  const getFitLevel = () => {
-    if (brand.fitForLanca) return brand.fitForLanca;
-    if (fitScore >= 8) return 'high';
-    if (fitScore >= 5) return 'medium';
-    return 'low';
-  };
-  const fitLevel = getFitLevel();
-
-  const fitColor = fitLevel === 'high' 
-    ? 'status-high' 
-    : fitLevel === 'medium' 
-    ? 'status-medium' 
-    : 'status-low';
-
-  const fitLabel = fitLevel === 'high' 
-    ? 'Alto' 
-    : fitLevel === 'medium' 
-    ? 'Médio' 
-    : 'Baixo';
-
-  const priceNote = brand.price_note || (brand as any).priceNote || "";
-  const productImages = parseJsonArray(brand.product_images as any);
-
-  // Image carousel state
-  const [imgIndex, setImgIndex] = useState(0);
-  const [imgErrors, setImgErrors] = useState<Set<number>>(new Set());
-  const validImages = productImages.filter((_, i) => !imgErrors.has(i));
-  const handleImgError = useCallback((idx: number) => {
-    setImgErrors(prev => new Set(prev).add(idx));
-  }, []);
-
-  // Format price — always show numeric range only
-  const linkedinHref = (() => {
-    if (!contactLinkedin?.trim()) return "";
-    const u = contactLinkedin.trim();
-    return u.startsWith("http") ? u : `https://${u}`;
-  })();
-  const linkedinIsCompany =
-    linkedinHref.includes("/company/") && !linkedinHref.includes("/in/");
-
-  // Older leads may hold one personal profile from the brand's website and no list.
-  const parsedContacts = parseLinkedInContacts(contactSource.linkedin_contacts);
-  const linkedinContacts =
-    parsedContacts.length > 0
-      ? parsedContacts
-      : linkedinHref.includes("/in/")
-        ? [{ name: contactName || "Perfil LinkedIn", role: contactRole, linkedin_url: linkedinHref }]
-        : [];
-  const companyLinkedinHref = linkedinIsCompany ? linkedinHref : "";
-  const peopleSearchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(
-    `${brand.name} ${rawCity}`.trim()
-  )}`;
-
-  const formatPrice = () => {
-    if (priceNote) {
-      // If priceNote is already a clean range like "€500 - €1200", show it
-      const rangeMatch = priceNote.match(/€?\s*(\d+)\s*[-–]\s*€?\s*(\d+)/);
-      if (rangeMatch) return `€${rangeMatch[1]} - €${rangeMatch[2]}`;
-      // If priceNote is a single value like "€800"
-      const singleMatch = priceNote.match(/€?\s*(\d+)/);
-      if (singleMatch) return `€${singleMatch[1]}`;
-    }
-    if (priceEUR && priceEUR > 0) return `€${Math.round(priceEUR)}`;
-    if (priceUSD && priceUSD > 0) return `€${Math.round(priceUSD * 0.93)}`;
-    return "N/A";
-  };
+  const iconButton = "h-10 w-10 flex-shrink-0 rounded border-border";
 
   return (
-    <div className="card-lanca overflow-hidden">
-      <div className="p-5 lg:p-6">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-lg font-semibold text-foreground truncate" title={brand.name}>
-                {brand.name}
-              </h3>
-              {brand.verified && (
-                <span title="Verificado pela IA" className="flex items-center flex-shrink-0">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
-              <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
-              <span className="text-sm">
-                {isStoreOnlyInSearchCity
-                  ? `Loja em ${city || "N/A"}`
-                  : hqInSearchCity
-                    ? `Sede em ${city || "N/A"}`
-                    : `${city || "N/A"}${country ? `, ${country}` : ""}`}
+    <article className="card-lanca flex flex-col gap-4 p-5">
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="break-words font-serif text-xl font-semibold leading-tight text-foreground">{lead.name}</h3>
+          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[12px] text-muted-foreground">
+            <MapPin className="h-3 w-3 flex-shrink-0" aria-hidden />
+            {location.city || "N/A"}
+            {location.country && !location.hqInCity ? `, ${location.country}` : ""}
+            {location.presenceLabel && (
+              <span className={location.storeOnly ? "text-amber-800" : "text-emerald-800"}>
+                · {location.presenceLabel}
               </span>
-              {presence?.label && (
-                <Badge
-                  variant="outline"
-                  className={`text-[10px] px-1.5 py-0 h-5 border ${presence.className}`}
-                >
-                  {presence.label}
-                </Badge>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <select 
-              value={currentStatus}
-              onChange={(e) => handleStatusChange(e.target.value)}
-              className="text-xs font-medium rounded-md px-2 py-1 bg-muted border border-border outline-none text-foreground focus:ring-2 focus:ring-lanca-yellow"
-            >
-              <option value="new">Novo</option>
-              <option value="contacted">Contactado</option>
-              <option value="converted">Convertido</option>
-              <option value="rejected">Rejeitado</option>
-            </select>
-            
-            {/* Feedback Mini-buttons */}
-            <div className="flex gap-1">
-              <button 
-                onClick={() => setFeedbackState({ showModal: true, type: "up", status: "idle" })}
-                className={`p-1.5 rounded-md transition-all hover:scale-110 ${
-                  feedbackState.status === "success" && feedbackState.type === "up"
-                  ? "bg-emerald-100 text-emerald-600 scale-105"
-                  : "bg-muted/30 text-muted-foreground/60 hover:text-emerald-500 hover:bg-emerald-50"
-                 }`}
-                title="Gostei desta marca"
-              >
-                <ThumbsUp className="h-4 w-4" />
-              </button>
-              <button 
-                onClick={() => setFeedbackState({ showModal: true, type: "down", status: "idle" })}
-                className={`p-1.5 rounded-md transition-all hover:scale-110 ${
-                   feedbackState.status === "success" && feedbackState.type === "down"
-                   ? "bg-rose-100 text-rose-600 scale-105"
-                   : "bg-muted/30 text-muted-foreground/60 hover:text-rose-500 hover:bg-rose-50"
-                 }`}
-                title="Esta marca não serve"
-              >
-                <ThumbsDown className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
+            )}
+          </p>
         </div>
-
-        {isStoreOnlyInSearchCity && (
-          <div
-            className="mb-4 flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-950"
-            role="status"
+        <div className="flex flex-shrink-0 flex-col items-end gap-1">
+          <select
+            value={status}
+            onChange={(event) => handleStatusChange(event.target.value)}
+            aria-label={`Estado de ${lead.name}`}
+            className="rounded border border-border bg-white px-2 py-1 text-[12px] font-medium text-foreground"
           >
-            <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-600 mt-0.5" />
-            <div className="min-w-0">
-              <p className="text-sm font-medium leading-snug">
-                Sem sede em {city || "esta cidade"} — apenas loja local
-              </p>
-              <p className="text-xs text-amber-900/85 mt-0.5 leading-relaxed">
-                {headquartersCity ? (
-                  <>
-                    A sede está em <span className="font-medium">{headquartersCity}</span>.
-                    Esta marca aparece na pesquisa por ter presença comercial em{" "}
-                    {city || "destino"}, não por ser uma marca local.
-                  </>
-                ) : (
-                  <>
-                    Não há sede confirmada em {city || "destino"}; a presença é
-                    uma loja ou filial na cidade pesquisada.
-                  </>
-                )}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {hqInSearchCity && headquartersCity && !isStoreOnlyInSearchCity && (
-          <div className="mb-4 flex items-center gap-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-            <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
-            <span>
-              Sede em <span className="font-medium">{headquartersCity}</span>
-              {city && !headquartersCity.toLowerCase().includes(city.toLowerCase())
-                ? ` (${city})`
-                : ""}
-            </span>
-          </div>
-        )}
-
-        {/* Product Images */}
-        {validImages.length > 0 && (
-          <div className="relative mb-4 rounded-lg overflow-hidden bg-muted/30 group">
-            <div className="aspect-[16/9] relative">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={validImages[imgIndex % validImages.length]}
-                alt={`${brand.name} product`}
-                className="w-full h-full object-cover"
-                onError={() => {
-                  const actualIdx = productImages.indexOf(validImages[imgIndex % validImages.length]);
-                  if (actualIdx >= 0) handleImgError(actualIdx);
-                }}
-                loading="lazy"
-                referrerPolicy="no-referrer"
-              />
-              {validImages.length > 1 && (
-                <>
-                  <button
-                    onClick={() => setImgIndex((imgIndex - 1 + validImages.length) % validImages.length)}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 p-1 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => setImgIndex((imgIndex + 1) % validImages.length)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
-                    {validImages.map((_, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setImgIndex(i)}
-                        className={`w-1.5 h-1.5 rounded-full transition-all ${
-                          i === imgIndex % validImages.length
-                            ? "bg-white scale-125"
-                            : "bg-white/50"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className="bg-muted/50 rounded-lg p-3 text-center">
-            <Store className="h-3.5 w-3.5 text-muted-foreground mx-auto mb-1" />
-            <p className="text-xs text-muted-foreground mb-0.5">Lojas</p>
-            <div className="flex items-center justify-center gap-1">
-              <p className="text-sm font-semibold text-foreground">{storeCount}</p>
-              {storeCountConfidence !== "unknown" && storeCountConfidence !== "verified" && (
-                <span className={`text-[10px] px-1 py-0.5 rounded ${storeConfidenceLabel[storeCountConfidence]?.className || ""}`}>
-                  {storeConfidenceLabel[storeCountConfidence]?.text}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="bg-muted/50 rounded-lg p-3 text-center">
-            <Tag className="h-3.5 w-3.5 text-muted-foreground mx-auto mb-1" />
-            <p className="text-xs text-muted-foreground mb-0.5">Preço</p>
-            <p className="text-sm font-semibold text-foreground">{formatPrice()}</p>
-          </div>
-          <div className="bg-muted/50 rounded-lg p-3 text-center">
-            <TrendingUp className="h-3.5 w-3.5 text-muted-foreground mx-auto mb-1" />
-            <p className="text-xs text-muted-foreground mb-0.5">Score</p>
-            <p className="text-sm font-semibold text-foreground">{finalScore || fitScore}/100</p>
-          </div>
-        </div>
-
-        {/* Brand Style Tag */}
-        {brandStyle && (
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-1.5 h-1.5 rounded-full bg-lanca-yellow flex-shrink-0" />
-            <p className="text-xs text-muted-foreground line-clamp-1">{brandStyle}</p>
-          </div>
-        )}
-
-        {/* Contact quick access */}
-        {(contactName || contactEmail || contactPhone || contactLinkedin) && (
-          <div className="flex flex-wrap items-center gap-2 mb-3">
-            {linkedinContacts.map((c) => (
-              <a
-                key={c.linkedin_url}
-                href={c.linkedin_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0A66C2]/10 border border-[#0A66C2]/20 rounded-md hover:bg-[#0A66C2]/15 transition-colors"
-              >
-                <Linkedin className="h-3.5 w-3.5 flex-shrink-0 text-[#0A66C2]" />
-                <span className="text-xs text-[#0A66C2] font-medium">
-                  {c.name}
-                  {c.role ? <span className="font-normal"> · {c.role}</span> : null}
-                </span>
-              </a>
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
             ))}
-            {linkedinContacts.length === 0 && contactName && (
-              <span className="text-xs text-foreground font-medium px-2 py-1 bg-muted/60 rounded-md">
-                {contactName}
-                {contactRole ? (
-                  <span className="text-muted-foreground font-normal"> · {contactRole}</span>
-                ) : null}
-              </span>
-            )}
-            {companyLinkedinHref && (
-              <a
-                href={companyLinkedinHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0A66C2]/10 border border-[#0A66C2]/20 rounded-md hover:bg-[#0A66C2]/15 transition-colors"
-              >
-                <Linkedin className="h-3.5 w-3.5 text-[#0A66C2]" />
-                <span className="text-xs text-[#0A66C2] font-medium">LinkedIn empresa</span>
-              </a>
-            )}
-            {contactEmail && (
-              <a
-                href={`mailto:${contactEmail}`}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 border border-blue-100 rounded-md hover:bg-blue-100 transition-colors"
-              >
-                <Mail className="h-3.5 w-3.5 text-blue-600" />
-                <span className="text-xs text-blue-700 font-medium">{contactEmail}</span>
-              </a>
-            )}
-            {contactPhone && (
-              <a
-                href={`tel:${contactPhone}`}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-muted/50 border border-border rounded-md hover:bg-muted transition-colors"
-              >
-                <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs text-foreground font-medium">{contactPhone}</span>
-              </a>
-            )}
+          </select>
+          <div className="flex">
+            {feedbackButton("up", "Boa lead", ThumbsUp, "text-emerald-700")}
+            {feedbackButton("down", "Esta marca não serve", ThumbsDown, "text-rose-700")}
           </div>
-        )}
+        </div>
+      </header>
 
-        {/* Description */}
-        <p className={`text-sm text-muted-foreground leading-relaxed mb-4 ${!isExpanded ? 'line-clamp-2' : ''}`}>
-          {description || "Sem descrição disponível."}
-        </p>
-
-        {/* Made to Measure badge */}
-        {madeToMeasure && (
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-lanca-yellowLight border border-lanca-yellow/15 rounded-md mb-4">
-            <Star className="h-3 w-3 text-lanca-yellowDark" />
-            <span className="text-xs font-medium text-lanca-yellowDark">Made to Measure</span>
-          </div>
-        )}
-
-        {/* Expanded Content */}
-        {isExpanded && (
-          <div className="space-y-4 mb-4 pt-4 border-t border-border animate-fade-in">
-            {/* Contact Info */}
-            {(contactName || contactEmail || contactPhone || contactLinkedin) && (
-              <div className="bg-lanca-yellowLight/50 rounded-lg p-4 border border-lanca-yellow/10">
-                <p className="text-xs font-semibold text-foreground mb-3 uppercase tracking-wide">Contacto</p>
-                <div className="space-y-2">
-                  {linkedinContacts.length === 0 && contactName && (
-                    <p className="text-sm text-foreground">
-                      <span className="font-medium">{contactName}</span>
-                      {contactRole && <span className="text-muted-foreground"> · {contactRole}</span>}
-                    </p>
-                  )}
-                  {linkedinContacts.map((c) => (
-                    <a key={c.linkedin_url} href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
-                      <Linkedin className="h-3.5 w-3.5 flex-shrink-0" />
-                      <span>
-                        {c.name}
-                        {c.role && <span className="text-muted-foreground"> · {c.role}</span>}
-                      </span>
-                    </a>
-                  ))}
-                  {contactEmail && (
-                    <a href={`mailto:${contactEmail}`} className="flex items-center gap-2 text-sm text-lanca-yellowDark hover:underline">
-                      <Mail className="h-3.5 w-3.5" />
-                      {contactEmail}
-                    </a>
-                  )}
-                  {contactPhone && (
-                    <a href={`tel:${contactPhone}`} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-                      <Phone className="h-3.5 w-3.5" />
-                      {contactPhone}
-                    </a>
-                  )}
-                  {companyLinkedinHref && (
-                    <a href={companyLinkedinHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
-                      <Linkedin className="h-3.5 w-3.5" />
-                      LinkedIn empresa
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Most Similar Client */}
-            {mostSimilarClient && (
-              <div>
-                <p className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">Cliente Mais Semelhante</p>
-                <div className="bg-muted/50 rounded-lg p-3">
-                  <p className="text-sm font-medium text-foreground mb-1">{mostSimilarClient}</p>
-                  {similarityExplanation && (
-                    <p className="text-xs text-muted-foreground leading-relaxed">{similarityExplanation}</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* HQ Address */}
-            {headquartersConfidence !== "unknown" && (headquartersAddress || headquartersCity) && (
-              <div>
-                <p className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">
-                  Sede
-                  {headquartersConfidence === "llm_knowledge" && (
-                    <span className="ml-2 text-[10px] font-normal text-muted-foreground normal-case">(conhecimento IA)</span>
-                  )}
-                </p>
-                <div className="flex items-start gap-2 bg-muted/50 rounded-lg p-3">
-                  <MapPin className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                  <div>
-                    {headquartersCity && (
-                      <p className="text-sm font-medium text-foreground">{headquartersCity}</p>
-                    )}
-                    {headquartersAddress && (
-                      <p className="text-sm text-muted-foreground leading-relaxed">{headquartersAddress}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Local Store in target city */}
-            {localStoreAddress && (
-              <div>
-                <p className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">Loja local ({city})</p>
-                <div className="flex items-start gap-2 bg-muted/50 rounded-lg p-3">
-                  <MapPin className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground leading-relaxed">{localStoreAddress}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Business Model */}
-            {businessModel && (
-              <div>
-                <p className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">Modelo de Negócio</p>
-                <p className="text-sm text-muted-foreground leading-relaxed">{businessModel}</p>
-              </div>
-            )}
-
-            {/* Store Locations */}
-            {storeLocations.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">Localizações</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {storeLocations.map((loc, i) => (
-                    <span key={i} className="px-2.5 py-1 bg-muted text-xs text-muted-foreground rounded-md border border-border flex items-center gap-1.5">
-                      <div className="h-1.5 w-1.5 bg-emerald-400 rounded-full" />
-                      {loc}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Material Composition */}
-            {materialComposition.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">Materiais</p>
-                <div className="space-y-1">
-                  {materialComposition.map((mat, i) => (
-                    <p key={i} className="text-sm text-muted-foreground leading-relaxed">{mat}</p>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Feedback History */}
-            {brand.feedback_history && brand.feedback_history.length > 0 && (
-              <div className="pt-4 border-t border-border/50">
-                <p className="text-xs font-semibold text-foreground mb-3 uppercase tracking-wide flex items-center gap-2">
-                  <MessageSquare className="h-3.5 w-3.5 text-lanca-yellowDark" />
-                  Histórico de Feedback
-                </p>
-                <div className="space-y-3">
-                  {brand.feedback_history.map((fb, idx) => (
-                    <div key={idx} className="bg-muted/30 rounded-xl p-3 border border-border/50">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <div className={`p-1 rounded-md ${fb.feedback_type === 'up' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                            {fb.feedback_type === 'up' ? <ThumbsUp className="h-3 w-3" /> : <ThumbsDown className="h-3 w-3" />}
-                          </div>
-                          <span className="text-xs font-medium text-foreground">{fb.manager_name}</span>
-                        </div>
-                        <span className="text-[10px] text-muted-foreground">
-                          {new Date(fb.created_at).toLocaleDateString('pt-PT')}
-                        </span>
-                      </div>
-                      <p className="text-sm text-muted-foreground italic leading-relaxed">
-                        &ldquo;{fb.comment}&rdquo;
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 pt-3 border-t border-border">
-          {linkedinContacts.length > 0 ? (
-            <Button
-              className="flex-1 h-10 rounded-lg text-sm font-medium gap-2 bg-[#0A66C2] hover:bg-[#004182] text-white"
-              onClick={() => setShowLinkedInModal(true)}
-            >
-              <Linkedin className="h-3.5 w-3.5" />
-              Mensagem LinkedIn
-            </Button>
-          ) : contactsChecked ? (
-            <Button
-              variant="outline"
-              className="flex-1 h-10 rounded-lg text-sm font-medium gap-2"
-              onClick={() => window.open(peopleSearchUrl, "_blank", "noopener,noreferrer")}
-              title="Sem perfis verificados para esta marca"
-            >
-              <Linkedin className="h-3.5 w-3.5 text-[#0A66C2]" />
-              Pesquisar no LinkedIn
-            </Button>
-          ) : (
-            <Button
-              disabled={isFindingContacts}
-              className="flex-1 h-10 rounded-lg text-sm font-medium gap-2 bg-lanca-black hover:bg-lanca-charcoal text-white"
-              onClick={handleFindContacts}
-            >
-              {isFindingContacts ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Search className="h-3.5 w-3.5" />
-              )}
-              {isFindingContacts ? "A procurar..." : "Procurar contactos"}
-            </Button>
+      {(why.reason || why.client) && (
+        <div className="border-l-2 border-lanca-gold pl-3">
+          {why.client && why.client !== "N/A" && (
+            <p className="text-[12px] font-medium text-foreground">Semelhante a {why.client}</p>
           )}
+          {why.reason && <p className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{why.reason}</p>}
+        </div>
+      )}
 
+      <LeadFacts lead={lead} />
+      <LeadContacts lead={lead} />
+
+      {isExpanded && <LeadDetails lead={lead} />}
+
+      <footer className="mt-auto flex items-center gap-2 pt-1">
+        {contacts.length > 0 ? (
           <Button
-            variant="outline"
-            size="icon"
-            className="h-10 w-10 rounded-lg border-border"
-            onClick={() => window.open(`https://www.google.com/maps/search/${encodeURIComponent(brand.name + " " + city)}`, '_blank')}
-            title="Ver no Maps"
+            onClick={() => setShowLinkedInModal(true)}
+            className="h-10 min-w-0 flex-1 gap-2 rounded bg-[#0A66C2] text-[13px] font-medium text-white hover:bg-[#004182]"
           >
-            <MapPin className="h-4 w-4 text-muted-foreground" />
+            <Linkedin className="h-4 w-4 flex-shrink-0" aria-hidden /> Mensagem LinkedIn
           </Button>
-
+        ) : lead.linkedin_contacts_checked_at ? (
+          <Button
+            variant="outline"
+            onClick={() => window.open(getPeopleSearchUrl(lead), "_blank", "noopener,noreferrer")}
+            title="Sem perfis verificados para esta marca"
+            className="h-10 min-w-0 flex-1 gap-2 rounded text-[13px] font-medium"
+          >
+            <Linkedin className="h-4 w-4 flex-shrink-0 text-[#0A66C2]" aria-hidden /> Pesquisar no LinkedIn
+          </Button>
+        ) : (
+          <Button
+            disabled={isFindingContacts}
+            onClick={handleFindContacts}
+            className="h-10 min-w-0 flex-1 gap-2 rounded bg-lanca-ink text-[13px] font-medium text-white hover:bg-lanca-charcoal"
+          >
+            {isFindingContacts
+              ? <RefreshCw className="h-4 w-4 flex-shrink-0 animate-spin" aria-hidden />
+              : <Search className="h-4 w-4 flex-shrink-0" aria-hidden />}
+            {isFindingContacts ? "A procurar..." : "Procurar contactos"}
+          </Button>
+        )}
+        {websiteUrl && (
           <Button
             variant="outline"
             size="icon"
-            className="h-10 w-10 rounded-lg border-border"
-            onClick={() => window.open(websiteUrl, '_blank')}
-            title="Abrir website"
+            className={iconButton}
+            aria-label={`Abrir site de ${lead.name}`}
+            title="Abrir site"
+            onClick={() => window.open(websiteUrl, "_blank", "noopener,noreferrer")}
           >
             <Globe className="h-4 w-4 text-muted-foreground" />
           </Button>
-
-          <Button
-            variant="outline"
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="h-10 px-3 rounded-lg border-border text-sm gap-1.5"
-          >
-            {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            {isExpanded ? "Menos" : "Mais"}
-          </Button>
-        </div>
-      </div>
+        )}
+        <Button
+          variant="outline"
+          size="icon"
+          className={iconButton}
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? "Mostrar menos" : "Mostrar mais"}
+          title={isExpanded ? "Menos" : "Mais"}
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </Button>
+      </footer>
 
       {showLinkedInModal && (
         <LinkedInMessageModal
-          brand={brand}
-          contacts={linkedinContacts}
+          brand={lead}
+          contacts={contacts}
           onClose={() => setShowLinkedInModal(false)}
           onProfileOpened={() => {
-            if (currentStatus === "new") void handleStatusChange("contacted");
+            if (status === "new") void handleStatusChange("contacted");
           }}
         />
       )}
-
-      {feedbackState.showModal && (
+      {feedbackModal && (
         <FeedbackModal
-          brandName={brand.name}
-          feedbackType={feedbackState.type as "up" | "down"}
-          onClose={() => setFeedbackState(prev => ({ ...prev, showModal: false }))}
+          brandName={lead.name}
+          feedbackType={feedbackModal}
+          onClose={() => setFeedbackModal(null)}
           onSubmit={handleFeedbackSubmit}
         />
       )}
-    </div>
+    </article>
   );
 });

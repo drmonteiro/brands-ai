@@ -53,6 +53,12 @@ export interface BrandLead {
   linkedin_contacts?: LinkedInContact[] | string;
   /** Null means this lead has never been looked up. */
   linkedin_contacts_checked_at?: string | null;
+  price_status?: "confirmed" | "unconfirmed" | null;
+  price_source_url?: string | null;
+  price_evidence?: { quote?: string; product?: string; source_url?: string }[] | null;
+  fit_reason?: string | null;
+  closest_client?: string | null;
+  core_category?: string | null;
   product_images?: string[];
   feedback_history?: {
     feedback_type: "up" | "down";

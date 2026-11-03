@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Copy, ExternalLink, Linkedin, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/apiBase";
@@ -73,9 +74,18 @@ export function LinkedInMessageModal({ brand, contacts, onClose, onProfileOpened
     onProfileOpened();
   };
 
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
   const noteTooLong = note.length > CONNECTION_NOTE_MAX_CHARS;
 
-  return (
+  // In a portal: animated ancestors would otherwise confine position: fixed to the card list.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div
         role="dialog"
@@ -180,6 +190,7 @@ export function LinkedInMessageModal({ brand, contacts, onClose, onProfileOpened
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

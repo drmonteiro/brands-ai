@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { ThumbsUp, ThumbsDown, X, Send, MessageSquare } from "lucide-react";
 import { Button } from "./ui/button";
 
@@ -30,7 +31,8 @@ export function FeedbackModal({ brandName, feedbackType, onClose, onSubmit }: Fe
     }
   };
 
-  return (
+  // In a portal: animated ancestors would otherwise confine position: fixed to the card list.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div 
         className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-border overflow-hidden animate-in zoom-in-95 duration-200"
@@ -102,7 +104,8 @@ export function FeedbackModal({ brandName, feedbackType, onClose, onSubmit }: Fe
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
