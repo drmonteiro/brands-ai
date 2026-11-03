@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from models import ApprovalRequest
 from services.email_service import send_partnership_email
+from services.linkedin_contacts import build_people_search_url
 
 router = APIRouter(prefix="/api/email", tags=["email"])
 
@@ -60,16 +61,12 @@ async def generate_draft(request: ApprovalRequest):
         from urllib.parse import quote
         subject = f"Partnership Proposal: Lança & {brand_lead.name}"
 
-        # [V4] LinkedIn outreach target — prefer the senior contact's personal profile.
         linkedin_url = (brand_lead.contact_linkedin or "").strip()
         if linkedin_url and not linkedin_url.lower().startswith("http"):
             linkedin_url = f"https://{linkedin_url.lstrip('/')}"
         linkedin_is_company = "/company/" in linkedin_url.lower() and "/in/" not in linkedin_url.lower()
         # Fallback: search LinkedIn for the brand if we have no direct profile.
-        linkedin_search = (
-            "https://www.linkedin.com/search/results/people/?keywords="
-            + quote(f"{brand_lead.name} {brand_lead.city or ''}".strip())
-        )
+        linkedin_search = build_people_search_url(brand_lead.name, brand_lead.city)
 
         return {
             "success": True,

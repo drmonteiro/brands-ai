@@ -54,6 +54,13 @@ def _row_to_facts(row) -> Dict[str, Any]:
         except Exception:
             locs = []
     data["store_locations"] = locs or []
+    contacts = data.get("linkedin_contacts")
+    if isinstance(contacts, str):
+        try:
+            contacts = json.loads(contacts)
+        except Exception:
+            contacts = []
+    data["linkedin_contacts"] = contacts or []
     return data
 
 
@@ -90,6 +97,12 @@ def apply_brand_facts_to_brand(brand: Dict[str, Any], facts: Dict[str, Any]) -> 
         "headquarters_city",
         "headquarters_confidence",
         "contact_email",
+        "contact_name",
+        "contact_role",
+        "contact_phone",
+        "contact_linkedin",
+        "linkedin_contacts",
+        "linkedin_contacts_checked_at",
         "avg_suit_price_eur",
         "price_range_min_eur",
         "price_range_max_eur",
@@ -139,6 +152,10 @@ def brand_dict_to_facts_row(brand: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "headquarters_city": brand.get("headquarters_city"),
         "headquarters_confidence": brand.get("headquarters_confidence") or "unknown",
         "contact_email": brand.get("contact_email"),
+        "contact_name": brand.get("contact_name"),
+        "contact_role": brand.get("contact_role"),
+        "contact_phone": brand.get("contact_phone"),
+        "contact_linkedin": brand.get("contact_linkedin"),
         "avg_suit_price_eur": brand.get("avg_suit_price_eur"),
         "price_range_min_eur": brand.get("price_range_min_eur"),
         "price_range_max_eur": brand.get("price_range_max_eur"),
@@ -179,6 +196,7 @@ async def upsert_brand_facts_from_brands(brands: List[Dict[str, Any]]) -> int:
                     store_count, store_count_confidence, store_locations,
                     wool_percentage, made_to_measure,
                     brand_style, business_model, company_overview,
+                    contact_name, contact_role, contact_phone, contact_linkedin,
                     updated_at
                 ) VALUES (
                     $1, $2, $3, $4,
@@ -188,6 +206,7 @@ async def upsert_brand_facts_from_brands(brands: List[Dict[str, Any]]) -> int:
                     $12, $13, $14::jsonb,
                     $15, $16,
                     $17, $18, $19,
+                    $20, $21, $22, $23,
                     CURRENT_TIMESTAMP
                 )
                 ON CONFLICT (domain) DO UPDATE SET
@@ -209,6 +228,10 @@ async def upsert_brand_facts_from_brands(brands: List[Dict[str, Any]]) -> int:
                     brand_style = EXCLUDED.brand_style,
                     business_model = EXCLUDED.business_model,
                     company_overview = EXCLUDED.company_overview,
+                    contact_name = COALESCE(EXCLUDED.contact_name, brand_facts.contact_name),
+                    contact_role = COALESCE(EXCLUDED.contact_role, brand_facts.contact_role),
+                    contact_phone = COALESCE(EXCLUDED.contact_phone, brand_facts.contact_phone),
+                    contact_linkedin = COALESCE(EXCLUDED.contact_linkedin, brand_facts.contact_linkedin),
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 row["domain"],
@@ -230,6 +253,51 @@ async def upsert_brand_facts_from_brands(brands: List[Dict[str, Any]]) -> int:
                 row["brand_style"],
                 row["business_model"],
                 row["company_overview"],
+                row["contact_name"],
+                row["contact_role"],
+                row["contact_phone"],
+                row["contact_linkedin"],
             )
     logger.info("[brand_facts] Upserted %d domain(s)", len(rows))
+    return len(rows)
+
+
+async def save_brand_linkedin_contacts(brands: List[Dict[str, Any]]) -> int:
+    """
+    Persist completed lookups separately from the upsert, which skips cache hits.
+    Brands without a completed lookup are left alone. Contacts are kept if a new
+    lookup finds nobody, so a thinner search can't erase known people.
+    """
+    rows = []
+    for brand in brands:
+        checked_at = brand.get("linkedin_contacts_checked_at")
+        domain = extract_domain(brand.get("website_url") or brand.get("url", ""))
+        if domain and checked_at is not None:
+            contacts = brand.get("linkedin_contacts") or []
+            rows.append((
+                json.dumps(contacts),
+                checked_at,
+                brand.get("contact_name"),
+                brand.get("contact_role"),
+                brand.get("contact_linkedin"),
+                domain,
+            ))
+    if not rows:
+        return 0
+
+    pool = await PostgresManager.get_pool()
+    async with pool.acquire() as conn:
+        await conn.executemany(
+            """
+            UPDATE brand_facts SET
+                linkedin_contacts = CASE WHEN $1::jsonb = '[]'::jsonb
+                    THEN linkedin_contacts ELSE $1::jsonb END,
+                linkedin_contacts_checked_at = $2,
+                contact_name = COALESCE($3, contact_name),
+                contact_role = COALESCE($4, contact_role),
+                contact_linkedin = COALESCE($5, contact_linkedin)
+            WHERE domain = $6
+            """,
+            rows,
+        )
     return len(rows)

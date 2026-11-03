@@ -3,6 +3,14 @@
  * These mirror the Python/PostgreSQL backend response format (snake_case)
  */
 
+export interface LinkedInContact {
+  name: string;
+  role?: string;
+  tier?: number;
+  linkedin_url: string;
+  evidence?: string;
+}
+
 export interface BrandLead {
   id: string;
   name: string;
@@ -41,6 +49,10 @@ export interface BrandLead {
   contact_email?: string;
   contact_phone?: string;
   contact_linkedin?: string;
+  /** Best first. The API may return JSONB as a string. */
+  linkedin_contacts?: LinkedInContact[] | string;
+  /** Null means this lead has never been looked up. */
+  linkedin_contacts_checked_at?: string | null;
   product_images?: string[];
   feedback_history?: {
     feedback_type: "up" | "down";
@@ -85,6 +97,20 @@ export function parseJsonArray(value: string | string[] | undefined | null): str
   } catch {
     return [];
   }
+}
+
+/** Contacts from either a JSON string or an array, skipping malformed items. */
+export function parseLinkedInContacts(value: LinkedInContact[] | string | undefined | null): LinkedInContact[] {
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((c): c is LinkedInContact => Boolean(c?.name && c?.linkedin_url));
 }
 
 /**

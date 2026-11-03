@@ -23,6 +23,10 @@ Search and enrichment use **Exa** (`EXA_API_KEY`). Runtime ranking weights live 
 
 Set env vars in `backend/.env` (see `backend/.env.example`).
 
+## LinkedIn contacts
+
+The score_save node looks up to 3 decision-makers for each new lead it keeps (`services/linkedin_contacts.py`): two Exa searches per lead, then one fast LLM verification call (`LLM_CONTACT_VERIFY_FAST`). Results are cached in `brand_facts`, re-checked after `BRAND_FACTS_TTL_DAYS`. Sending is assisted: the platform writes the text, and a salesperson sends it on LinkedIn.
+
 ## Required API keys
 
 - `AZURE_OPENAI_*` — LLM + embeddings

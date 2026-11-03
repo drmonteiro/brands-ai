@@ -10,6 +10,10 @@ from services.currency import get_eur_usd_rate, eur_to_usd as _eur_to_usd
 from services.llm_tasks import task_uses_fast_model
 
 
+# Without this, one stalled Azure call blocks the whole pipeline forever.
+LLM_REQUEST_TIMEOUT_SEC = 180
+
+
 def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
     """
     Get Azure OpenAI LLM instance.
@@ -30,6 +34,7 @@ def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
         deployment_name=deployment,
         temperature=safe_temperature,
         max_tokens=12000,
+        timeout=LLM_REQUEST_TIMEOUT_SEC,
     )
 
 

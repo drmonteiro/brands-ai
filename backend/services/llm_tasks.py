@@ -21,6 +21,7 @@ TASK_USE_FAST_DEFAULT: Dict[str, bool] = {
     "discovery": True,
     "filter": True,
     "city_context": True,
+    "contact_verify": True,
 }
 
 

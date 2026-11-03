@@ -89,13 +89,14 @@ app.add_middleware(
 )
 
 # Core routers — lightweight imports for fast cold start
-from routers import prospects, cities, analytics, workflow, email, export
+from routers import prospects, cities, analytics, workflow, email, export, linkedin
 
 app.include_router(workflow.router)
 app.include_router(prospects.router)
 app.include_router(cities.router)
 app.include_router(analytics.router)
 app.include_router(email.router)
+app.include_router(linkedin.router)
 app.include_router(export.router)
 
 # Heavy routers (LangChain, Twilio) — optional; core API must start even if these fail

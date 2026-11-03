@@ -67,3 +67,35 @@ async def test_enrich_uses_cache_hit_path_only_places(monkeypatch):
     assert out["enriched_brands"][0]["avg_suit_price_eur"] == 900
     assert out["enriched_brands"][0]["local_store_address"] == "Shop, Milan"
     assert any("cache hit" in m for m in out["progress"])
+
+
+async def test_contacts_only_looked_up_for_new_leads_and_saved(monkeypatch):
+    from agents.nodes import persistence as persistence_mod
+
+    new = {"website_url": "https://new.test", "name": "New"}
+    existing = {"website_url": "https://www.old.test/", "name": "Old"}
+    seen = []
+
+    async def _attach(brands):
+        seen.extend(brands)
+        brands[0]["linkedin_contacts"] = [{"name": "A"}]
+        return 1
+
+    save = AsyncMock(return_value=1)
+    monkeypatch.setattr(persistence_mod, "attach_linkedin_contacts", _attach)
+    monkeypatch.setattr(persistence_mod, "save_brand_linkedin_contacts", save)
+
+    found = await persistence_mod._attach_contacts_to_new_leads(
+        [new, existing], {persistence_mod.normalize_url(existing["website_url"])}
+    )
+
+    assert seen == [new]
+    assert found == 1
+    save.assert_awaited_once_with([new])
+
+
+async def test_contact_failure_does_not_lose_leads(monkeypatch):
+    from agents.nodes import persistence as persistence_mod
+
+    monkeypatch.setattr(persistence_mod, "attach_linkedin_contacts", AsyncMock(side_effect=RuntimeError("x")))
+    assert await persistence_mod._attach_contacts_to_new_leads([{"website_url": "https://a.test"}], set()) == 0

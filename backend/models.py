@@ -3,6 +3,7 @@ Pydantic models for the Confeções Lança prospector
 """
 
 import json
+from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
@@ -132,6 +133,9 @@ class BrandLead(BaseModel):
     contact_email: Optional[str] = Field(None, alias="contactEmail")
     contact_phone: Optional[str] = Field(None, alias="contactPhone")
     contact_linkedin: Optional[str] = Field(None, alias="contactLinkedin")
+    # Ranked decision-makers: {name, role, tier, linkedin_url, evidence}
+    linkedin_contacts: List[Dict[str, Any]] = Field(default_factory=list, alias="linkedinContacts")
+    linkedin_contacts_checked_at: Optional[datetime] = Field(None, alias="linkedinContactsCheckedAt")
 
     # DB compat fields
     material_composition: Optional[List[str]] = Field(default_factory=list, alias="materialComposition")
@@ -151,6 +155,17 @@ class BrandLead(BaseModel):
                 return False
             return None
         return v
+
+    @field_validator("linkedin_contacts", mode="before")
+    @classmethod
+    def coerce_linkedin_contacts(cls, v):
+        """asyncpg returns JSONB as a string; rows may also hold NULL."""
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except ValueError:
+                return []
+        return v if isinstance(v, list) else []
 
     @field_validator("fit_score", mode="before")
     @classmethod

@@ -6,6 +6,7 @@ import {
   BrandLead,
   parseJsonArray,
   isHeadquartersInSearchCity,
+  parseLinkedInContacts,
 } from "@/lib/types";
 import { apiUrl } from "@/lib/apiBase";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ import {
   MapPin,
   Phone,
   RefreshCw,
-  Send,
+  Search,
   Store,
   TrendingUp,
   Tag,
@@ -34,17 +35,20 @@ import {
   Building2,
 } from "lucide-react";
 import { FeedbackModal } from "./FeedbackModal";
+import { LinkedInMessageModal } from "./LinkedInMessageModal";
 
 interface BrandCardProps {
   brand: BrandLead;
-  onSendEmail?: (brandName: string, brandData: any) => Promise<boolean>;
   managerName?: string;
 }
 
-export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerName = "Comercial" }: BrandCardProps) {
+export const BrandCard = memo(function BrandCard({ brand, managerName = "Comercial" }: BrandCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(brand.status || "new");
-  const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [showLinkedInModal, setShowLinkedInModal] = useState(false);
+  const [isFindingContacts, setIsFindingContacts] = useState(false);
+  // Result of an on-demand lookup, layered over the lead from the list.
+  const [lookupResult, setLookupResult] = useState<Partial<BrandLead> | null>(null);
   const [feedbackState, setFeedbackState] = useState<{
     showModal: boolean;
     type: "up" | "down" | null;
@@ -79,19 +83,27 @@ export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerNa
     }
   };
 
-  const handleSendEmail = async () => {
-    setEmailStatus("sending");
-    if (onSendEmail) {
-      const success = await onSendEmail(brand.name, brand);
-      if (success) {
-        setEmailStatus("sent");
-        if (currentStatus === "new") {
-          setCurrentStatus("contacted");
-        }
-        return;
+  const handleFindContacts = async () => {
+    setIsFindingContacts(true);
+    try {
+      const response = await fetch(apiUrl(`/api/prospects/${brand.id}/linkedin-contacts`), { method: "POST" });
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        throw new Error(err?.detail);
       }
+      const updated: BrandLead = await response.json();
+      setLookupResult(updated);
+      const found = parseLinkedInContacts(updated.linkedin_contacts).length;
+      if (found > 0) {
+        toast.success(`${found} contacto${found > 1 ? "s" : ""} encontrado${found > 1 ? "s" : ""}.`);
+      } else {
+        toast.info("Sem perfis verificados. Podes pesquisar diretamente no LinkedIn.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error && error.message ? error.message : "Não foi possível procurar contactos.");
+    } finally {
+      setIsFindingContacts(false);
     }
-    setEmailStatus("idle");
   };
 
   const handleStatusChange = async (newStatus: string) => {
@@ -124,11 +136,13 @@ export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerNa
   const description = brand.detailed_description || brand.detailedDescription || brand.company_overview || brand.companyOverview || "";
   const fitScore = brand.fit_score ?? brand.fitScore ?? 0;
   const finalScore = brand.final_score ?? 0;
-  const contactName = brand.contact_name || brand.contactName || "";
-  const contactRole = brand.contact_role || brand.contactRole || "";
+  const contactSource: BrandLead = lookupResult ? { ...brand, ...lookupResult } : brand;
+  const contactName = contactSource.contact_name || brand.contactName || "";
+  const contactRole = contactSource.contact_role || brand.contactRole || "";
   const contactEmail = brand.contact_email || brand.contactEmail || "";
   const contactPhone = brand.contact_phone || brand.contactPhone || "";
-  const contactLinkedin = brand.contact_linkedin || brand.contactLinkedin || "";
+  const contactLinkedin = contactSource.contact_linkedin || brand.contactLinkedin || "";
+  const contactsChecked = Boolean(contactSource.linkedin_contacts_checked_at);
   const brandStyle = brand.brand_style || "";
   const businessModel = brand.business_model || "";
   const mostSimilarClient = brand.most_similar_client || "";
@@ -219,13 +233,19 @@ export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerNa
   })();
   const linkedinIsCompany =
     linkedinHref.includes("/company/") && !linkedinHref.includes("/in/");
-  const linkedinLabel = linkedinHref
-    ? linkedinIsCompany
-      ? "LinkedIn empresa"
-      : contactName
-        ? `Perfil de ${contactName}`
-        : "Perfil LinkedIn"
-    : "";
+
+  // Older leads may hold one personal profile from the brand's website and no list.
+  const parsedContacts = parseLinkedInContacts(contactSource.linkedin_contacts);
+  const linkedinContacts =
+    parsedContacts.length > 0
+      ? parsedContacts
+      : linkedinHref.includes("/in/")
+        ? [{ name: contactName || "Perfil LinkedIn", role: contactRole, linkedin_url: linkedinHref }]
+        : [];
+  const companyLinkedinHref = linkedinIsCompany ? linkedinHref : "";
+  const peopleSearchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(
+    `${brand.name} ${rawCity}`.trim()
+  )}`;
 
   const formatPrice = () => {
     if (priceNote) {
@@ -442,13 +462,39 @@ export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerNa
         {/* Contact quick access */}
         {(contactName || contactEmail || contactPhone || contactLinkedin) && (
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            {contactName && (
+            {linkedinContacts.map((c) => (
+              <a
+                key={c.linkedin_url}
+                href={c.linkedin_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0A66C2]/10 border border-[#0A66C2]/20 rounded-md hover:bg-[#0A66C2]/15 transition-colors"
+              >
+                <Linkedin className="h-3.5 w-3.5 flex-shrink-0 text-[#0A66C2]" />
+                <span className="text-xs text-[#0A66C2] font-medium">
+                  {c.name}
+                  {c.role ? <span className="font-normal"> · {c.role}</span> : null}
+                </span>
+              </a>
+            ))}
+            {linkedinContacts.length === 0 && contactName && (
               <span className="text-xs text-foreground font-medium px-2 py-1 bg-muted/60 rounded-md">
                 {contactName}
                 {contactRole ? (
                   <span className="text-muted-foreground font-normal"> · {contactRole}</span>
                 ) : null}
               </span>
+            )}
+            {companyLinkedinHref && (
+              <a
+                href={companyLinkedinHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0A66C2]/10 border border-[#0A66C2]/20 rounded-md hover:bg-[#0A66C2]/15 transition-colors"
+              >
+                <Linkedin className="h-3.5 w-3.5 text-[#0A66C2]" />
+                <span className="text-xs text-[#0A66C2] font-medium">LinkedIn empresa</span>
+              </a>
             )}
             {contactEmail && (
               <a
@@ -457,17 +503,6 @@ export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerNa
               >
                 <Mail className="h-3.5 w-3.5 text-blue-600" />
                 <span className="text-xs text-blue-700 font-medium">{contactEmail}</span>
-              </a>
-            )}
-            {linkedinHref && (
-              <a
-                href={linkedinHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0A66C2]/10 border border-[#0A66C2]/20 rounded-md hover:bg-[#0A66C2]/15 transition-colors"
-              >
-                <Linkedin className="h-3.5 w-3.5 text-[#0A66C2]" />
-                <span className="text-xs text-[#0A66C2] font-medium">{linkedinLabel}</span>
               </a>
             )}
             {contactPhone && (
@@ -503,12 +538,21 @@ export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerNa
               <div className="bg-lanca-yellowLight/50 rounded-lg p-4 border border-lanca-yellow/10">
                 <p className="text-xs font-semibold text-foreground mb-3 uppercase tracking-wide">Contacto</p>
                 <div className="space-y-2">
-                  {contactName && (
+                  {linkedinContacts.length === 0 && contactName && (
                     <p className="text-sm text-foreground">
                       <span className="font-medium">{contactName}</span>
                       {contactRole && <span className="text-muted-foreground"> · {contactRole}</span>}
                     </p>
                   )}
+                  {linkedinContacts.map((c) => (
+                    <a key={c.linkedin_url} href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
+                      <Linkedin className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span>
+                        {c.name}
+                        {c.role && <span className="text-muted-foreground"> · {c.role}</span>}
+                      </span>
+                    </a>
+                  ))}
                   {contactEmail && (
                     <a href={`mailto:${contactEmail}`} className="flex items-center gap-2 text-sm text-lanca-yellowDark hover:underline">
                       <Mail className="h-3.5 w-3.5" />
@@ -521,10 +565,10 @@ export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerNa
                       {contactPhone}
                     </a>
                   )}
-                  {linkedinHref && (
-                    <a href={linkedinHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
+                  {companyLinkedinHref && (
+                    <a href={companyLinkedinHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
                       <Linkedin className="h-3.5 w-3.5" />
-                      {linkedinLabel}
+                      LinkedIn empresa
                     </a>
                   )}
                 </div>
@@ -647,35 +691,38 @@ export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerNa
 
         {/* Actions */}
         <div className="flex items-center gap-2 pt-3 border-t border-border">
-          <Button
-            disabled={emailStatus !== "idle" || !contactEmail}
-            className={`flex-1 h-10 rounded-lg text-sm font-medium transition-all duration-200 ${
-              emailStatus === "sent" 
-                ? "bg-emerald-600 text-white" 
-                : !contactEmail
-                ? "bg-muted text-muted-foreground cursor-not-allowed"
-                : "bg-lanca-black hover:bg-lanca-charcoal text-white"
-            }`}
-            onClick={handleSendEmail}
-            title={!contactEmail ? "Sem email de contacto disponível" : undefined}
-          >
-            {emailStatus === "idle" ? (
-              <div className="flex items-center gap-2">
-                <Send className="h-3.5 w-3.5" />
-                <span>{!contactEmail ? "Sem email" : "Enviar proposta"}</span>
-              </div>
-            ) : emailStatus === "sending" ? (
-              <div className="flex items-center gap-2">
+          {linkedinContacts.length > 0 ? (
+            <Button
+              className="flex-1 h-10 rounded-lg text-sm font-medium gap-2 bg-[#0A66C2] hover:bg-[#004182] text-white"
+              onClick={() => setShowLinkedInModal(true)}
+            >
+              <Linkedin className="h-3.5 w-3.5" />
+              Mensagem LinkedIn
+            </Button>
+          ) : contactsChecked ? (
+            <Button
+              variant="outline"
+              className="flex-1 h-10 rounded-lg text-sm font-medium gap-2"
+              onClick={() => window.open(peopleSearchUrl, "_blank", "noopener,noreferrer")}
+              title="Sem perfis verificados para esta marca"
+            >
+              <Linkedin className="h-3.5 w-3.5 text-[#0A66C2]" />
+              Pesquisar no LinkedIn
+            </Button>
+          ) : (
+            <Button
+              disabled={isFindingContacts}
+              className="flex-1 h-10 rounded-lg text-sm font-medium gap-2 bg-lanca-black hover:bg-lanca-charcoal text-white"
+              onClick={handleFindContacts}
+            >
+              {isFindingContacts ? (
                 <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                <span>A enviar...</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                <span>Enviado!</span>
-              </div>
-            )}
-          </Button>
+              ) : (
+                <Search className="h-3.5 w-3.5" />
+              )}
+              {isFindingContacts ? "A procurar..." : "Procurar contactos"}
+            </Button>
+          )}
 
           <Button
             variant="outline"
@@ -707,6 +754,17 @@ export const BrandCard = memo(function BrandCard({ brand, onSendEmail, managerNa
           </Button>
         </div>
       </div>
+
+      {showLinkedInModal && (
+        <LinkedInMessageModal
+          brand={brand}
+          contacts={linkedinContacts}
+          onClose={() => setShowLinkedInModal(false)}
+          onProfileOpened={() => {
+            if (currentStatus === "new") void handleStatusChange("contacted");
+          }}
+        />
+      )}
 
       {feedbackState.showModal && (
         <FeedbackModal

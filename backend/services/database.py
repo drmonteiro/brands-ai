@@ -185,8 +185,9 @@ async def save_prospect(
                 contact_name, contact_role, contact_email, contact_phone, contact_linkedin, price_note,
                 headquarters_address, product_images,
                 headquarters_city, headquarters_confidence, local_store_address,
-                city_presence_type, store_count_confidence
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)
+                city_presence_type, store_count_confidence,
+                linkedin_contacts, linkedin_contacts_checked_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42::jsonb, $43)
             ON CONFLICT (id) DO UPDATE SET
                 avg_suit_price_eur = EXCLUDED.avg_suit_price_eur,
                 final_score = EXCLUDED.final_score,
@@ -205,6 +206,9 @@ async def save_prospect(
                 store_locations = EXCLUDED.store_locations,
                 price_note = EXCLUDED.price_note,
                 product_images = COALESCE(EXCLUDED.product_images, prospects.product_images),
+                linkedin_contacts = CASE WHEN EXCLUDED.linkedin_contacts = '[]'::jsonb
+                    THEN prospects.linkedin_contacts ELSE EXCLUDED.linkedin_contacts END,
+                linkedin_contacts_checked_at = COALESCE(EXCLUDED.linkedin_contacts_checked_at, prospects.linkedin_contacts_checked_at),
                 updated_at = CURRENT_TIMESTAMP
         """,
             prospect_id,
@@ -248,6 +252,8 @@ async def save_prospect(
             str(prospect.get("local_store_address", "")) if prospect.get("local_store_address") else None,
             str(prospect.get("city_presence_type", "unknown") or "unknown"),
             str(prospect.get("store_count_confidence", "unknown") or "unknown"),
+            json.dumps(prospect.get("linkedin_contacts") or []),
+            prospect.get("linkedin_contacts_checked_at"),
         )
         
         print(f"[DATABASE] ✅ Saved to Postgres: {prospect.get('name')} ({city}) - Score: {scores.get('final_score', 0):.1f}")
@@ -739,17 +745,41 @@ async def update_prospect_contact(prospect_id: str, contact_data: Dict):
         contact_data.get("contact_linkedin"),
         prospect_id)
 
-async def update_prospect_status(prospect_id: str, status: str, notes: Optional[str] = None):
+async def update_prospect_linkedin_contacts(prospect_id: str, contacts: List[Dict]) -> bool:
     """
-    Update prospect status and notes.
+    Save a completed lookup on every city row of this brand (contacts are brand-level,
+    and listings show one row per domain). Finding nobody keeps existing contacts.
+    """
+    top = contacts[0] if contacts else {}
+    pool = await PostgresManager.get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute("""
+            UPDATE prospects SET
+                linkedin_contacts = CASE WHEN $2::jsonb = '[]'::jsonb
+                    THEN linkedin_contacts ELSE $2::jsonb END,
+                linkedin_contacts_checked_at = CURRENT_TIMESTAMP,
+                contact_name = COALESCE($3, contact_name),
+                contact_role = COALESCE($4, contact_role),
+                contact_linkedin = COALESCE($5, contact_linkedin),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+               OR domain = (SELECT domain FROM prospects WHERE id = $1)
+        """, prospect_id, json.dumps(contacts), top.get("name"), top.get("role") or None, top.get("linkedin_url"))
+    return result.split()[-1] != "0"
+
+
+async def update_prospect_status(prospect_id: str, status: str, notes: Optional[str] = None) -> bool:
+    """
+    Update prospect status (and notes, when given). Returns False if the prospect does not exist.
     """
     pool = await PostgresManager.get_pool()
     async with pool.acquire() as conn:
-        await conn.execute("""
+        result = await conn.execute("""
             UPDATE prospects 
-            SET status = $1, notes = $2, updated_at = CURRENT_TIMESTAMP 
+            SET status = $1, notes = COALESCE($2, notes), updated_at = CURRENT_TIMESTAMP 
             WHERE id = $3
         """, status, notes, prospect_id)
+    return result.split()[-1] != "0"
 
 async def get_prospect_by_id(prospect_id: str) -> Optional[Dict]:
     """

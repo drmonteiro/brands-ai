@@ -1,7 +1,10 @@
 """
 Router for Prospect Management
 """
+import os
+from datetime import datetime, timezone
 from typing import Optional, List, Dict
+from exa_py import Exa
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from models import (
@@ -12,11 +15,15 @@ from services.database import (
     get_prospects_by_city,
     get_prospect_by_id,
     update_prospect_status,
+    update_prospect_linkedin_contacts,
     delete_prospect,
     get_prospects_filtered,
     get_filter_options,
     save_prospect_feedback,
 )
+
+from services.brand_facts import save_brand_linkedin_contacts
+from services.linkedin_contacts import find_linkedin_contacts
 
 router = APIRouter(prefix="/api/prospects", tags=["prospects"])
 
@@ -96,6 +103,31 @@ async def update_status(prospect_id: str, request: StatusUpdateRequest):
     if not await update_prospect_status(prospect_id, request.status, request.notes):
         raise HTTPException(status_code=404, detail="Prospect não encontrado")
     return {"success": True, "new_status": request.status}
+
+@router.post("/{prospect_id}/linkedin-contacts")
+async def lookup_linkedin_contacts(prospect_id: str):
+    """On-demand lookup, used for leads saved before contacts existed."""
+    prospect = await get_prospect_by_id(prospect_id)
+    if not prospect:
+        raise HTTPException(status_code=404, detail="Prospect não encontrado")
+    exa_key = os.environ.get("EXA_API_KEY")
+    if not exa_key:
+        raise HTTPException(status_code=503, detail="Pesquisa de contactos indisponível.")
+
+    contacts, ok = await find_linkedin_contacts(Exa(api_key=exa_key), prospect)
+    if not ok and not contacts:
+        raise HTTPException(status_code=502, detail="Não foi possível pesquisar contactos. Tenta novamente.")
+
+    await update_prospect_linkedin_contacts(prospect_id, contacts)
+    await save_brand_linkedin_contacts([{
+        "website_url": prospect.get("website_url"),
+        "linkedin_contacts": contacts,
+        "linkedin_contacts_checked_at": datetime.now(timezone.utc),
+        "contact_name": contacts[0]["name"] if contacts else None,
+        "contact_role": (contacts[0].get("role") or None) if contacts else None,
+        "contact_linkedin": contacts[0]["linkedin_url"] if contacts else None,
+    }])
+    return await get_prospect_by_id(prospect_id)
 
 @router.delete("/{prospect_id}")
 async def remove_prospect(prospect_id: str):

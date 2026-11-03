@@ -148,29 +148,6 @@ export default function SavedCitiesPage() {
         return () => { cancelled = true; };
     }, [selectedCity, debouncedFilters]);
 
-    const handleSendEmail = async (brandName: string, brandData: any) => {
-        const contactEmail = brandData?.contact_email || brandData?.contactEmail;
-        if (!contactEmail) {
-            toast.error(`${brandName} não tem email de contacto disponível.`);
-            return false;
-        }
-        try {
-            const response = await fetch(apiUrl("/api/email/draft"), {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ brandName, brandData }),
-            });
-            if (response.ok) {
-                const data = await response.json();
-                if (data.mailto) { window.location.href = data.mailto; return true; }
-            } else {
-                const err = await response.json().catch(() => null);
-                toast.error(err?.detail || "Não foi possível gerar a proposta.");
-            }
-            return false;
-        } catch { return false; }
-    };
-
     const handleExportCSV = () => {
         if (!selectedCity) return;
         const params = new URLSearchParams({ city: selectedCity });
@@ -416,7 +393,6 @@ export default function SavedCitiesPage() {
                                         <BrandCard
                                             key={brand.id}
                                             brand={brand}
-                                            onSendEmail={handleSendEmail}
                                             managerName={managerName}
                                         />
                                     ))}

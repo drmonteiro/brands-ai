@@ -55,3 +55,28 @@ def test_brand_dict_to_facts_row_uses_domain_key():
     assert row is not None
     assert row["domain"] == "brand.co.uk"
     assert row["avg_suit_price_eur"] == 800
+
+
+def test_cache_keeps_person_contact_and_linkedin_fields():
+    from unittest.mock import sentinel
+    contacts = [{"name": "A", "linkedin_url": "https://www.linkedin.com/in/a"}]
+    brand = {"url": "https://example.com", "website_url": "https://example.com"}
+    apply_brand_facts_to_brand(brand, {
+        "domain": "example.com",
+        "contact_name": "A",
+        "contact_role": "CEO",
+        "contact_phone": "+1",
+        "contact_linkedin": "https://www.linkedin.com/in/a",
+        "linkedin_contacts": contacts,
+        "linkedin_contacts_checked_at": sentinel.checked_at,
+    })
+    assert brand["contact_name"] == "A"
+    assert brand["contact_role"] == "CEO"
+    assert brand["contact_phone"] == "+1"
+    assert brand["contact_linkedin"].endswith("/in/a")
+    assert brand["linkedin_contacts"] == contacts
+    assert brand["linkedin_contacts_checked_at"] is sentinel.checked_at
+
+    row = brand_dict_to_facts_row({**brand, "name": "Example"})
+    assert row["contact_name"] == "A"
+    assert row["contact_linkedin"].endswith("/in/a")

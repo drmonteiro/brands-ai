@@ -12,7 +12,9 @@ from typing import List, Dict, Any, Union
 
 from models import ProspectorState, BrandLead
 from services.vector_db import find_similar_clients_batch
+from services.brand_facts import save_brand_linkedin_contacts
 from services.database import save_prospect, get_existing_urls_for_city
+from services.linkedin_contacts import attach_linkedin_contacts
 from services.runtime_scoring import (
     calculate_city_presence_score,
     compute_runtime_final_score,
@@ -158,6 +160,20 @@ Return ONLY a JSON array:
             {"url": b.get("website_url", ""), "fit_score": 5, "fit_reason": "assessment error"}
             for b in brands
         ]
+
+
+async def _attach_contacts_to_new_leads(top_brands: List[Dict], existing_urls) -> int:
+    """
+    Look up contacts only for leads about to be saved: filter can pass 80+ brands
+    and only the top ones are kept. A failure here must not lose the leads.
+    """
+    new_leads = [b for b in top_brands if normalize_url(b.get("website_url", "")) not in existing_urls]
+    try:
+        await attach_linkedin_contacts(new_leads)
+        await save_brand_linkedin_contacts(new_leads)
+    except Exception as e:
+        logger.warning("LinkedIn contact step failed: %r", e)
+    return sum(1 for b in new_leads if b.get("linkedin_contacts"))
 
 
 async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
@@ -450,6 +466,13 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
                      b.get("similarity_score", 0), b.get("llm_fit_score", 0),
                      b.get("avg_suit_price_eur", "?"), b.get("store_count", "?"))
 
+    t_contacts = step_begin(logger, "N4b_LINKEDIN_CONTACTS", target_city,
+                            f"Procurar decisores no LinkedIn para {len(top_brands)} marcas.")
+    progress.append("👤 A procurar decisores no LinkedIn…")
+    with_contacts = await _attach_contacts_to_new_leads(top_brands, existing_urls)
+    step_end(logger, "N4b_LINKEDIN_CONTACTS", target_city, t_contacts, with_contacts=with_contacts)
+    progress.append(f"✅ Contactos LinkedIn encontrados para {with_contacts} marcas")
+
     # --- Phase 4: Save to PostgreSQL ---
     t_save = step_begin(logger, "N4c_SAVE_DB", target_city,
                          f"Guardar top {len(top_brands)} marcas na base de dados.")
@@ -508,6 +531,8 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
             "contact_email": brand.get("contact_email"),
             "contact_phone": brand.get("contact_phone"),
             "contact_linkedin": brand.get("contact_linkedin"),
+            "linkedin_contacts": brand.get("linkedin_contacts") or [],
+            "linkedin_contacts_checked_at": brand.get("linkedin_contacts_checked_at"),
         }
 
         similar = similar_client_data.get(url, [])
@@ -581,6 +606,8 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
                     contact_email=prospect_dict.get("contact_email"),
                     contact_phone=prospect_dict.get("contact_phone"),
                     contact_linkedin=prospect_dict.get("contact_linkedin"),
+                    linkedin_contacts=prospect_dict.get("linkedin_contacts"),
+                    linkedin_contacts_checked_at=prospect_dict.get("linkedin_contacts_checked_at"),
                 )
                 verified_brands.append(brand_lead)
                 logger.info("  SAVED: %s (score=%.1f)", prospect_dict["name"], brand.get("final_score", 0))

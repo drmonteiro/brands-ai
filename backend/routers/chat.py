@@ -90,6 +90,7 @@ def build_prospect_context(prospects: list, context_label: str) -> str:
         # Contact
         contact_name = p.get("contact_name") or "N/A"
         contact_email = p.get("contact_email") or "N/A"
+        contact_linkedin = p.get("contact_linkedin") or "N/A"
         
         price_note = p.get("price_note", "")
         
@@ -101,7 +102,7 @@ def build_prospect_context(prospects: list, context_label: str) -> str:
         lines.append(f"- Product: Avg Price {price}€ | MTM: {mtm} | Heritage: {heritage} | Appt Only: {appt_only} | Price Note: {price_note if price_note else 'N/A'}")
         lines.append(f"- Scores: Final {final_score}/100 | Fit {fit_score}")
         lines.append(f"- Similarity: Matches {similar_client} ({similarity_explanation[:150] if similarity_explanation else 'N/A'})")
-        lines.append(f"- Sales Lead: {contact_name} | Email: {contact_email}")
+        lines.append(f"- Sales Lead: {contact_name} | LinkedIn: {contact_linkedin} | Email: {contact_email}")
         lines.append(f"- Description: {(overview or description)[:200]}")
         lines.append("-" * 30)
 
