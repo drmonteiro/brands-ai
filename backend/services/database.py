@@ -11,12 +11,14 @@ Architecture:
 - PostgreSQL + pgvector → Unified storage for everything
 """
 
+import copy
 import os
 import json
 import asyncio
+import time
 from datetime import datetime
-from typing import List, Dict, Optional, Any
-from .postgres import PostgresManager
+from typing import List, Dict, Optional, Any, Tuple
+from .postgres import PostgresManager, retry_on_connection_error
 
 # ============================================================================
 # DATABASE UTILITIES
@@ -77,7 +79,8 @@ async def init_database():
                 print(f"[DATABASE] Executing migration: {migration_file}...")
                 with open(path, "r") as f:
                     schema_sql = f.read()
-                    await conn.execute(schema_sql)
+                    # Migrations can outlast the normal query timeout.
+                    await conn.execute(schema_sql, timeout=300)
                 await conn.execute(
                     "INSERT INTO schema_migrations (filename) VALUES ($1)",
                     migration_file,
@@ -256,6 +259,7 @@ async def save_prospect(
             prospect.get("linkedin_contacts_checked_at"),
         )
         
+        clear_cities_cache()
         print(f"[DATABASE] ✅ Saved to Postgres: {prospect.get('name')} ({city}) - Score: {scores.get('final_score', 0):.1f}")
     
     return {"status": "saved", "id": prospect_id, "prospect": prospect}
@@ -312,6 +316,7 @@ async def get_all_prospects(limit: int = 100) -> List[Dict]:
 # ADVANCED FILTERING SYSTEM
 # ============================================================================
 
+@retry_on_connection_error
 async def get_prospects_filtered(
     # Location filters
     city: Optional[str] = None,
@@ -677,7 +682,28 @@ def _serialize_city_row(row) -> Dict:
     return data
 
 
+CITIES_CACHE_TTL_SEC = 60
+_cities_cache: Optional[Tuple[float, List[Dict]]] = None
+
+
+def clear_cities_cache() -> None:
+    global _cities_cache
+    _cities_cache = None
+
+
 async def get_all_searched_cities() -> List[Dict]:
+    """Cities and their stats, cached briefly so the first screen doesn't wait on the database."""
+    global _cities_cache
+    now = time.monotonic()
+    if _cities_cache and _cities_cache[0] > now:
+        return copy.deepcopy(_cities_cache[1])
+    cities = await _fetch_searched_cities()
+    _cities_cache = (now + CITIES_CACHE_TTL_SEC, cities)
+    return copy.deepcopy(cities)
+
+
+@retry_on_connection_error
+async def _fetch_searched_cities() -> List[Dict]:
     """
     Get all cities that have been searched with their stats.
     """
@@ -779,6 +805,7 @@ async def update_prospect_status(prospect_id: str, status: str, notes: Optional[
             SET status = $1, notes = COALESCE($2, notes), updated_at = CURRENT_TIMESTAMP 
             WHERE id = $3
         """, status, notes, prospect_id)
+    clear_cities_cache()
     return result.split()[-1] != "0"
 
 async def get_prospect_by_id(prospect_id: str) -> Optional[Dict]:
@@ -837,12 +864,14 @@ async def delete_prospect(prospect_id: str):
     pool = await PostgresManager.get_pool()
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM prospects WHERE id = $1", prospect_id)
-        return True
+    clear_cities_cache()
+    return True
 
 async def delete_city_prospects(city: str):
     """
     Delete all prospects for a giving city.
     """
+    clear_cities_cache()
     pool = await PostgresManager.get_pool()
     async with pool.acquire() as conn:
         # Case insensitive match on city

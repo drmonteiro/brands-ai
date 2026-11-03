@@ -5,7 +5,8 @@ import asyncio
 import logging
 import os
 import sys
-from fastapi import Depends, FastAPI
+import time
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from services.auth import require_user
@@ -30,6 +31,10 @@ for noisy in ("httpx", "httpcore", "urllib3", "openai", "exa_py", "asyncio", "ps
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
 logger = logging.getLogger("api")
+request_logger = logging.getLogger("api.requests")
+
+SLOW_REQUEST_MS = 3000
+_process_started = time.monotonic()
 
 
 def _cors_origins() -> list:
@@ -92,6 +97,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_request_timing(request: Request, call_next):
+    """Uptime separates a slow request on a fresh container from one on a settled container."""
+    started = time.monotonic()
+    response = await call_next(request)
+    duration_ms = (time.monotonic() - started) * 1000
+    response.headers["Server-Timing"] = f"app;dur={duration_ms:.0f}"
+    request_logger.log(
+        logging.WARNING if duration_ms >= SLOW_REQUEST_MS else logging.INFO,
+        "%s %s %s status=%d duration_ms=%.0f uptime_s=%.0f",
+        "SLOW_REQUEST" if duration_ms >= SLOW_REQUEST_MS else "REQUEST",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        time.monotonic() - _process_started,
+    )
+    return response
+
 
 # Core routers — lightweight imports for fast cold start
 from routers import prospects, cities, analytics, workflow, email, export, linkedin

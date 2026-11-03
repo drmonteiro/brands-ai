@@ -31,12 +31,14 @@ const BrandCard = dynamic(
   }
 );
 
+// localStorage, not sessionStorage, so the first click of a new session shows cities at once.
 const CITIES_CACHE_KEY = "lanca_cities_cache_v1";
+const PROSPECTS_TIMEOUT_MS = 20000;
 
 function readCitiesCache(): CityData[] | null {
     if (typeof window === "undefined") return null;
     try {
-        const raw = sessionStorage.getItem(CITIES_CACHE_KEY);
+        const raw = localStorage.getItem(CITIES_CACHE_KEY);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         return Array.isArray(parsed) ? parsed : null;
@@ -85,7 +87,7 @@ export default function SavedCitiesPage() {
                 const cities: CityData[] = data.cities || [];
                 setSavedCities(cities);
                 setCitiesError(null);
-                try { sessionStorage.setItem(CITIES_CACHE_KEY, JSON.stringify(cities)); } catch { /* ignore */ }
+                try { localStorage.setItem(CITIES_CACHE_KEY, JSON.stringify(cities)); } catch { /* ignore */ }
                 setIsLoadingCities(false);
                 return;
             } catch (e) {
@@ -127,7 +129,7 @@ export default function SavedCitiesPage() {
                 if (debouncedFilters.maxPrice) params.append("max_price", debouncedFilters.maxPrice.toString());
                 if (debouncedFilters.fitForLanca === "high") params.append("min_score", "70");
                 if (debouncedFilters.fitForLanca === "medium") params.append("min_score", "50");
-                const response = await apiFetch(`/api/prospects?${params.toString()}`);
+                const response = await fetchWithTimeout(`/api/prospects?${params.toString()}`, {}, PROSPECTS_TIMEOUT_MS);
                 if (!response.ok) {
                     const t = await response.text().catch(() => "");
                     throw new Error(t || `HTTP ${response.status}`);
@@ -136,9 +138,10 @@ export default function SavedCitiesPage() {
                 if (!cancelled) setProspects(data.prospects || []);
             } catch (e) {
                 console.error("[saved-cities] prospects fetch failed:", e);
-                toast.error(
-                    "Não foi possível carregar as marcas. Confirma NEXT_PUBLIC_API_URL (build) e CORS_ORIGINS no backend."
-                );
+                if (!cancelled) {
+                    toast.error("Não foi possível carregar as marcas. Escolhe a cidade de novo para tentar outra vez.");
+                    setSelectedCity(null);
+                }
                 if (!cancelled) setProspects([]);
             } finally {
                 if (!cancelled) setIsLoadingProspects(false);
