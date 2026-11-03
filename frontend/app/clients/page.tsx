@@ -248,7 +248,7 @@ export default function ClientsPage() {
                         </Link>
                         <div className="h-5 w-px bg-border" />
                         <div>
-                            <h1 className="text-lg font-semibold text-foreground">Rede de Clientes</h1>
+                            <h1 className="font-serif text-xl font-semibold text-foreground">Rede de Clientes</h1>
                             <p className="text-sm text-muted-foreground">Parceiros ativos da Confeções Lança</p>
                         </div>
                     </div>
@@ -310,7 +310,7 @@ export default function ClientsPage() {
                             </div>
                             
                             {/* Name & Location */}
-                            <h3 className="text-lg font-semibold text-foreground mb-2 group-hover:text-lanca-yellowDark transition-colors">
+                            <h3 className="mb-2 font-serif text-xl font-semibold text-foreground group-hover:text-lanca-yellowDark transition-colors">
                                 {client.name}
                             </h3>
                             <div className="flex items-center gap-1.5 text-muted-foreground mb-4">
@@ -349,7 +349,7 @@ export default function ClientsPage() {
                     <div className="w-14 h-14 bg-lanca-yellowLight rounded-xl flex items-center justify-center mx-auto mb-5">
                         <TrendingUp className="h-6 w-6 text-lanca-yellowDark" />
                     </div>
-                    <h3 className="text-xl font-semibold text-foreground mb-2">Excelência desde 1973</h3>
+                    <h3 className="mb-2 font-serif text-2xl font-semibold text-foreground">Excelência desde 1973</h3>
                     <p className="text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
                         Estes parceiros representam o padrão de qualidade da Confeções Lança. 
                         A nossa plataforma de pesquisa por IA replica este rigor na descoberta de novos mercados globais.

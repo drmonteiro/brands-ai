@@ -57,11 +57,16 @@ export default {
         },
         // Confeções Lança Brand Palette
         lanca: {
-          yellow: "#F5C518",
-          yellowLight: "#FEF9E7",
+          // Ink and gold are the identity. goldDeep is gold dark enough to read as text.
+          ink: "#141210",
+          gold: "#C9A227",
+          goldDeep: "#7A5C00",
+          goldTint: "#F8F1DC",
+          yellow: "#C9A227",
+          yellowLight: "#F8F1DC",
           yellowMid: "#FCD34D",
-          yellowDark: "#D4A514",
-          black: "#1a1a1a",
+          yellowDark: "#7A5C00",
+          black: "#141210",
           blackLight: "#2d2d2d",
           charcoal: "#3d3d3d",
           white: "#ffffff",

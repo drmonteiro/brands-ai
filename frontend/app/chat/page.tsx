@@ -183,7 +183,7 @@ export default function ChatDashboard() {
             if (trimmed.startsWith("•") || trimmed.startsWith("-")) {
                 return (
                     <div key={i} className="flex gap-2 ml-1 my-0.5">
-                        <span className="text-[#F5C518] flex-shrink-0 mt-0.5">•</span>
+                        <span className="text-lanca-gold flex-shrink-0 mt-0.5">•</span>
                         <span>{renderBold(trimmed.replace(/^[•\-]\s*/, ""))}</span>
                     </div>
                 );
@@ -199,7 +199,7 @@ export default function ChatDashboard() {
             <div className="bg-white border-b border-black/[0.06] px-6 lg:px-8 py-4 flex items-center justify-between z-10">
                 <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-lg bg-[#111] flex items-center justify-center shadow-md">
-                        <Sparkles size={16} className="text-[#F5C518]" />
+                        <Sparkles size={16} className="text-lanca-gold" />
                     </div>
                     <div>
                         <h1 className="text-[18px] font-serif font-semibold text-[#111] tracking-tight">
@@ -220,7 +220,7 @@ export default function ChatDashboard() {
                         <select
                             value={city}
                             onChange={(e) => setCity(e.target.value)}
-                            className="bg-gray-50 border border-gray-200 text-[13px] rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F5C518]/50 focus:border-[#F5C518]/30 transition-all cursor-pointer"
+                            className="bg-gray-50 border border-gray-200 text-[13px] rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-lanca-gold/50 focus:border-lanca-gold/30 transition-all cursor-pointer"
                         >
                             <option value="Todas">🌍 Global (Todas)</option>
                             {cities.map((c) => (
@@ -277,7 +277,7 @@ export default function ChatDashboard() {
                             {/* Avatar */}
                             <div className="flex-shrink-0 mt-1">
                                 {msg.role === "assistant" ? (
-                                    <div className="w-8 h-8 rounded-lg bg-[#111] text-[#F5C518] flex items-center justify-center shadow-md">
+                                    <div className="w-8 h-8 rounded-lg bg-[#111] text-lanca-gold flex items-center justify-center shadow-md">
                                         <Bot size={15} />
                                     </div>
                                 ) : (
@@ -304,11 +304,11 @@ export default function ChatDashboard() {
                     {/* Typing Indicator */}
                     {isTyping && (
                         <div className="flex gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-[#111] text-[#F5C518] flex items-center justify-center shadow-md">
+                            <div className="w-8 h-8 rounded-lg bg-[#111] text-lanca-gold flex items-center justify-center shadow-md">
                                 <Bot size={15} />
                             </div>
                             <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 flex items-center gap-3 shadow-sm">
-                                <Loader2 size={15} className="text-[#F5C518] animate-spin" />
+                                <Loader2 size={15} className="text-lanca-gold animate-spin" />
                                 <span className="text-[13px] text-gray-400">
                                     A consultar a base de dados e a formular resposta...
                                 </span>
@@ -327,7 +327,7 @@ export default function ChatDashboard() {
                                     <button
                                         key={i}
                                         onClick={() => handleSend(prompt)}
-                                        className="text-left text-[13px] text-gray-500 bg-white border border-gray-100 rounded-xl px-4 py-3 hover:border-[#F5C518]/30 hover:bg-[#F5C518]/[0.02] hover:text-gray-700 transition-all shadow-sm"
+                                        className="text-left text-[13px] text-gray-500 bg-white border border-gray-100 rounded-xl px-4 py-3 hover:border-lanca-gold/30 hover:bg-lanca-gold/[0.02] hover:text-gray-700 transition-all shadow-sm"
                                     >
                                         {prompt}
                                     </button>

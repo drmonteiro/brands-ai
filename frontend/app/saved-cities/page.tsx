@@ -6,10 +6,8 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
     Globe,
-    Users,
     RefreshCw,
     MapPin,
-    TrendingUp,
     Database,
     ChevronRight,
     Search,
@@ -204,20 +202,17 @@ export default function SavedCitiesPage() {
     const safeCities = Array.isArray(savedCities) ? savedCities : [];
     const totalProspectsCount = safeCities.reduce((acc, c) => acc + (c.total_prospects || 0), 0);
     const safeProspects = Array.isArray(prospects) ? prospects : [];
-    const avgScore = safeProspects.length > 0
-        ? Math.round(safeProspects.reduce((acc, p) => acc + (p.fit_score ?? p.fitScore ?? 0), 0) / safeProspects.length)
-        : 0;
 
     return (
-        <div className="flex h-screen bg-background overflow-hidden font-sans">
+        <div className="flex h-[calc(100dvh-3.5rem)] flex-col overflow-hidden bg-background font-sans md:h-screen lg:flex-row">
 
             {/* Left Panel — City List */}
-            <aside className="w-[280px] bg-white border-r border-border flex flex-col flex-shrink-0">
+            <aside className="flex w-full flex-shrink-0 flex-col border-b border-border bg-white lg:w-[280px] lg:border-b-0 lg:border-r">
 
                 {/* Panel Header */}
-                <div className="h-16 px-5 flex items-center border-b border-border">
+                <div className="flex items-center border-b border-border px-5 py-3 lg:h-16 lg:py-0">
                     <div>
-                        <h2 className="text-[13px] font-semibold text-foreground tracking-tight">Cidades guardadas</h2>
+                        <h1 className="font-serif text-lg font-semibold text-foreground">Cidades guardadas</h1>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
                             {isLoadingCities ? "A carregar..." : `${safeCities.length} cidades · ${totalProspectsCount} marcas`}
                         </p>
@@ -225,7 +220,7 @@ export default function SavedCitiesPage() {
                 </div>
 
                 {/* City List */}
-                <div className="flex-1 overflow-y-auto p-2">
+                <div className="flex gap-1 overflow-x-auto p-2 lg:block lg:flex-1 lg:overflow-y-auto" aria-busy={isLoadingCities}>
                     {isLoadingCities ? (
                         <div className="space-y-1.5 p-1">
                             {Array.from({ length: 7 }).map((_, i) => (
@@ -257,7 +252,7 @@ export default function SavedCitiesPage() {
                         <div className="text-center py-16 px-4">
                             <Database className="h-6 w-6 text-muted-foreground/25 mx-auto mb-2" />
                             <p className="text-[12px] text-muted-foreground mb-1">Sem cidades guardadas</p>
-                            <Link href="/" className="text-[11px] text-[#D4A514] hover:underline">
+                            <Link href="/" className="text-[11px] text-lanca-goldDeep hover:underline">
                                 Fazer uma pesquisa →
                             </Link>
                         </div>
@@ -266,17 +261,18 @@ export default function SavedCitiesPage() {
                         return (
                             <button
                                 key={cityData.city}
+                                aria-current={isActive ? "true" : undefined}
                                 onClick={() => {
                                     if (selectedCity !== cityData.city) setActiveFilters({});
                                     setSelectedCity(cityData.city);
                                 }}
-                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-150 text-left mb-0.5 ${
+                                className={`flex flex-shrink-0 items-center gap-3 px-3 py-2 lg:py-2.5 lg:w-full rounded-md transition-all duration-150 text-left mb-0.5 ${
                                     isActive
-                                        ? "bg-[#111111] text-white"
+                                        ? "bg-lanca-ink text-white"
                                         : "text-foreground hover:bg-muted/60"
                                 }`}
                             >
-                                <MapPin className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-[#F5C518]" : "text-muted-foreground/50"}`} />
+                                <MapPin className={`hidden lg:block h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-lanca-gold" : "text-muted-foreground/50"}`} />
                                 <div className="flex-1 min-w-0">
                                     <span className="text-[13px] font-medium block truncate capitalize">
                                         {cityData.city}
@@ -285,7 +281,7 @@ export default function SavedCitiesPage() {
                                         {cityData.total_prospects} marcas
                                     </span>
                                 </div>
-                                <ChevronRight className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-white/30" : "text-muted-foreground/20"}`} />
+                                <ChevronRight className={`hidden lg:block h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-white/30" : "text-muted-foreground/20"}`} />
                             </button>
                         );
                     })}
@@ -296,18 +292,18 @@ export default function SavedCitiesPage() {
             <main className="flex-1 overflow-y-auto flex flex-col">
 
                 {/* Top Bar */}
-                <header className="h-16 bg-white border-b border-border px-6 flex items-center justify-between sticky top-0 z-40 flex-shrink-0">
+                <header className="sticky top-0 z-30 flex h-14 flex-shrink-0 items-center justify-between border-b border-border bg-white px-4 lg:h-16 lg:px-6">
                     <div className="flex items-center gap-3">
                         {selectedCity ? (
                             <>
-                                <MapPin className="h-4 w-4 text-[#F5C518]" />
-                                <span className="text-[15px] font-semibold text-foreground capitalize">{selectedCity}</span>
-                                <span className="text-[12px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
-                                    {safeProspects.length} marcas
+                                <MapPin className="h-4 w-4 text-lanca-gold" />
+                                <h2 className="font-serif text-xl font-semibold capitalize text-foreground">{selectedCity}</h2>
+                                <span className="text-[12px] tabular-nums text-muted-foreground">
+                                    {safeProspects.length} {safeProspects.length === 1 ? "marca" : "marcas"}
                                 </span>
                             </>
                         ) : (
-                            <span className="text-[15px] font-semibold text-foreground">Base de Dados</span>
+                            <h2 className="font-serif text-xl font-semibold text-foreground">Base de dados</h2>
                         )}
                     </div>
 
@@ -338,7 +334,7 @@ export default function SavedCitiesPage() {
                     )}
                 </header>
 
-                <div className="p-6 lg:p-8 flex-1">
+                <div className="flex-1 p-4 lg:p-8">
                     {!selectedCity ? (
 
                         /* Empty State */
@@ -346,7 +342,7 @@ export default function SavedCitiesPage() {
                             <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center mb-5">
                                 <Search className="h-5 w-5 text-muted-foreground/40" />
                             </div>
-                            <h3 className="text-[16px] font-semibold text-foreground mb-1">Selecione uma cidade</h3>
+                            <h3 className="mb-1 font-serif text-2xl font-semibold text-foreground">Selecione uma cidade</h3>
                             <p className="text-[13px] text-muted-foreground max-w-sm mb-8">
                                 Escolha uma cidade à esquerda para ver as marcas encontradas pela IA.
                             </p>
@@ -366,24 +362,8 @@ export default function SavedCitiesPage() {
                     ) : (
                         <div className="space-y-6 smooth-entry">
 
-                            {/* City Header */}
-                            <div className="mb-6 pb-5 flex items-end justify-between border-b border-border/50">
-                                <div>
-                                    <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50 mb-1.5 flex items-center gap-1.5">
-                                        <Globe className="h-3 w-3 text-[#D4A514]" />
-                                        Resultados da Prospeção
-                                    </p>
-                                    <h2 className="text-3xl font-bold text-foreground capitalize flex items-center gap-3">
-                                        {selectedCity}
-                                        <span className="text-[13px] font-medium text-muted-foreground bg-muted px-2.5 py-1 rounded-md align-middle flex items-center gap-1">
-                                            {safeProspects.length} marcas
-                                        </span>
-                                    </h2>
-                                </div>
-                            </div>
-
                             {/* Filters */}
-                            <div className="bg-white rounded-lg border border-border p-4">
+                            <div className="rounded border border-border bg-white px-4 py-2 lg:py-3">
                                 <FilterPanel
                                     activeFilters={activeFilters}
                                     onFilterChange={setActiveFilters}
@@ -400,10 +380,10 @@ export default function SavedCitiesPage() {
                             ) : safeProspects.length === 0 ? (
                                 <div className="text-center py-16 bg-white rounded-lg border border-border">
                                     <Database className="h-6 w-6 text-muted-foreground/25 mx-auto mb-2" />
-                                    <p className="text-[13px] text-muted-foreground">Nenhuma marca encontrada nesta cidade.</p>
+                                    <p className="text-[13px] text-muted-foreground">Nenhuma marca com estes filtros.</p>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                                     {safeProspects.map((brand) => (
                                         <BrandCard
                                             key={brand.id}

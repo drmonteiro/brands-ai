@@ -1,7 +1,6 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 
 interface FilterPanelProps {
   onFilterChange: (filters: ProspectFilters) => void;
@@ -77,22 +76,26 @@ export function FilterPanel({ onFilterChange, activeFilters }: FilterPanelProps)
     });
   };
 
-  const hasActiveFilters =
-    activeFilters.storeSize !== null ||
-    activeFilters.fitForLanca !== null ||
-    activeFilters.priceRange !== null;
+  const hasActiveFilters = Boolean(
+    activeFilters.storeSize || activeFilters.fitForLanca || activeFilters.priceRange
+  );
 
   const pillClass = (isActive: boolean) =>
     `px-2.5 py-1 text-[11px] font-medium rounded border transition-all ${
       isActive 
-        ? "bg-[#111111] text-white border-[#111111] shadow-sm" 
-        : "bg-white text-muted-foreground border-border hover:border-[#F5C518]/60 hover:text-foreground"
+        ? "bg-lanca-ink text-white border-lanca-ink shadow-sm" 
+        : "bg-white text-muted-foreground border-border hover:border-lanca-gold/60 hover:text-foreground"
     }`;
 
-  const groupLabelClass = "text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60 w-24 flex-shrink-0";
+  const groupLabelClass = "text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground w-20 flex-shrink-0 lg:w-auto lg:mr-2 flex-shrink-0";
 
   return (
-    <div className="flex flex-col gap-2.5 py-1">
+    <details className="group lg:contents" open={hasActiveFilters || undefined}>
+      <summary className="flex cursor-pointer list-none items-center justify-between py-1 text-[13px] font-medium text-foreground lg:hidden">
+        Filtros{hasActiveFilters ? " (ativos)" : ""}
+        <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
+      </summary>
+    <div className="flex flex-col gap-2.5 py-2 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-8 lg:py-0">
       
       {/* Fit Lança Row */}
       <div className="flex items-center">
@@ -129,7 +132,7 @@ export function FilterPanel({ onFilterChange, activeFilters }: FilterPanelProps)
       </div>
 
       {/* Price Row & Clear */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div className="flex items-center">
           <span className={groupLabelClass}>Preço</span>
           <div className="flex flex-wrap gap-1.5">
@@ -164,5 +167,6 @@ export function FilterPanel({ onFilterChange, activeFilters }: FilterPanelProps)
       </div>
 
     </div>
+    </details>
   );
 }

@@ -24,7 +24,7 @@ const Sidebar = dynamic(
   () => import("@/components/Sidebar").then((mod) => mod.Sidebar),
   {
     loading: () => (
-      <aside className="w-[72px] lg:w-[260px] bg-[#111111] h-screen flex-shrink-0 border-r border-white/[0.06]" />
+      <aside className="w-[72px] lg:w-[260px] bg-lanca-ink h-screen flex-shrink-0 border-r border-white/[0.06]" />
     ),
   }
 );
@@ -48,7 +48,8 @@ export default function RootLayout({
         <AppProviders>
           <div className="flex min-h-screen">
             <Sidebar />
-            <main className="flex-1 overflow-y-auto">
+            {/* Room for the phone navigation bar. */}
+            <main className="min-w-0 flex-1 overflow-y-auto pb-14 md:pb-0">
               {children}
             </main>
           </div>

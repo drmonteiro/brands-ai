@@ -68,7 +68,7 @@ function SignInInner() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#111111] px-4 py-10">
+    <div className="min-h-screen w-full flex items-center justify-center bg-lanca-ink px-4 py-10">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
@@ -80,10 +80,10 @@ function SignInInner() {
               className="h-12 w-auto object-contain"
             />
           </div>
-          <h1 className="text-white text-lg font-bold tracking-tight">
+          <h1 className="font-serif text-2xl font-semibold text-white">
             Confeções Lança
           </h1>
-          <p className="text-[#F5C518] text-[10px] font-bold uppercase tracking-[0.12em] mt-1">
+          <p className="text-lanca-gold text-[10px] font-bold uppercase tracking-[0.12em] mt-1">
             Plataforma Comercial
           </p>
         </div>
@@ -103,7 +103,7 @@ function SignInInner() {
             <Button
               onClick={handleAzure}
               disabled={loadingAzure}
-              className="w-full h-11 bg-[#111111] hover:bg-[#222222] text-white rounded-md gap-2"
+              className="w-full h-11 bg-lanca-ink hover:bg-lanca-charcoal text-white rounded-md gap-2"
             >
               {loadingAzure ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -181,7 +181,7 @@ export default function SignInPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-[#111111]">
+        <div className="min-h-screen flex items-center justify-center bg-lanca-ink">
           <Loader2 className="h-6 w-6 animate-spin text-white/50" />
         </div>
       }
