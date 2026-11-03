@@ -18,15 +18,11 @@ from typing import Any, Dict, List
 import yaml
 from exa_py import Exa
 
-from agents.nodes import enrich as enrich_mod
-from agents.nodes import persistence as persistence_mod
 from data.lanca_clients import LANCA_CLIENTS
-from services.lead_gate import evaluate_lead
+from services.lead_recheck import assess_brands
 from services.linkedin_contacts import simplify_name
-from services.runtime_scoring import compute_runtime_final_score
 
 GOLDEN_PATH = Path(__file__).resolve().parent / "golden_leads.yaml"
-BATCH_SIZE = enrich_mod.ENRICH_BATCH_SIZE
 GENERIC_NAME_WORDS = {"gmbh", "grupo", "bayertree", "espanolas", "sastrerias"}
 
 
@@ -48,54 +44,6 @@ async def _find_client_site(exa: Exa, client: Dict[str, Any]) -> Dict[str, Any]:
         "country": client.get("country", ""),
         "known_stores": client.get("store_count"),
     }
-
-
-async def evaluate_brands(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    working = enrich_mod._prepare_working_brands(
-        [{"url": r["url"], "brand_name": r["name"], "title": r["name"], "text": "", "highlights": ""} for r in rows]
-    )
-    # The search result's text normally arrives from discovery. Here the site is known.
-    exa = Exa(api_key=os.environ["EXA_API_KEY"])
-    for brand in working:
-        response = await asyncio.to_thread(
-            exa.get_contents, [brand["url"]], text={"maxCharacters": enrich_mod.DISCOVERY_SLICE}
-        )
-        brand["text"] = next((r.text for r in response.results if getattr(r, "text", None)), "")
-
-    contents = await enrich_mod._batch_fetch_exa_supplements(working)
-    out: List[Dict[str, Any]] = []
-    for start in range(0, len(working), BATCH_SIZE):
-        batch, batch_contents = working[start:start + BATCH_SIZE], contents[start:start + BATCH_SIZE]
-        extracted = await enrich_mod._extract_structured_batch(batch, batch_contents, "", "")
-        for brand, row, content in zip(batch, extracted, batch_contents, strict=True):
-            merged = enrich_mod._merge_extracted_into_brand(brand, row, brand)
-            enrich_mod._apply_evidence(merged, row, content)
-            merged["store_count"] = merged.get("_site_store_count") or 1
-            out.append(merged)
-
-    similar = await persistence_mod._find_similar_with_retries([persistence_mod._build_profile_text(b) for b in out])
-    for start in range(0, len(out), persistence_mod.FIT_BATCH_SIZE):
-        batch = out[start:start + persistence_mod.FIT_BATCH_SIZE]
-        for brand, fit in zip(batch, await persistence_mod._llm_fit_assessment(batch, "")):
-            brand.update(
-                llm_fit_score=fit["fit_score"],
-                client_level=fit["client_level"],
-                closest_client=fit["closest_client"],
-                llm_fit_reason=fit["fit_reason"],
-            )
-    for brand, matches, row in zip(out, similar, rows, strict=True):
-        # Real clients are in the comparison table, and matching themselves proves nothing.
-        others = [m for m in matches if m["name"] != row["name"]] or matches
-        brand["similarity_score"] = persistence_mod._similarity_from_matches(others) if others else 0
-        brand["similarity_failed"] = not others
-        if row.get("known_stores"):
-            brand["store_count"] = row["known_stores"]
-        brand["final_score"] = compute_runtime_final_score(
-            brand["similarity_score"], brand["llm_fit_score"], brand.get("avg_suit_price_eur") or 0, brand["store_count"]
-        )[0]
-        decision = evaluate_lead(brand)
-        brand["_gate"] = {"accepted": decision.accepted, "code": decision.code, "reason": decision.reason}
-    return out
 
 
 def summarize(rows: List[Dict[str, Any]], brands: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -151,7 +99,7 @@ async def main() -> None:
         rows = [await _find_client_site(exa, c) for c in LANCA_CLIENTS]
         rows = [r for r in rows if r["url"]]
 
-    report = summarize(rows, await evaluate_brands(rows))
+    report = summarize(rows, await assess_brands(rows))
     Path(args.out).write_text(json.dumps(report, indent=1, ensure_ascii=False, default=str))
     print(json.dumps({k: v for k, v in report.items() if k != "results"}, ensure_ascii=False))
 

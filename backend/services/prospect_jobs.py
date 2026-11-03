@@ -13,7 +13,8 @@ from typing import Dict, List, Optional
 
 from agents.nodes.pipeline_timing import format_duration
 from services.currency import get_eur_usd_rate
-from services.database import city_has_results, get_city_stats, normalize_city
+from services.database import city_has_results, get_active_leads_for_city, get_city_stats, normalize_city
+from services.lead_recheck import recheck_city_leads
 
 logger = logging.getLogger("prospect_jobs")
 
@@ -45,6 +46,8 @@ def _create_initial_state(city: str) -> dict:
 class ProspectJob:
     city: str
     force_refresh: bool
+    regenerate: bool = False
+    summary: Optional[Dict[str, int]] = None
     status: JobStatus = JobStatus.RUNNING
     progress: List[str] = field(default_factory=list)
     error: Optional[str] = None
@@ -66,10 +69,11 @@ class ProspectJob:
             "similarityDegraded": self.similarity_degraded,
             "similarityFailureCount": self.similarity_failure_count,
             "cached": self.cached,
+            "summary": self.summary,
         }
 
 
-async def _execute_pipeline(job: ProspectJob) -> None:
+async def _execute_pipeline(job: ProspectJob, keep_running: bool = False) -> None:
     # Lazy import — LangGraph/Exa/LangChain only load when a pipeline actually runs
     from agents.graph import _get_app_with_postgres
 
@@ -98,8 +102,9 @@ async def _execute_pipeline(job: ProspectJob) -> None:
             job.brand_count = len(raw_brands)
             job.similarity_degraded = bool(final_result.get("similarity_degraded"))
             job.similarity_failure_count = int(final_result.get("similarity_failure_count") or 0)
-            job.status = JobStatus.COMPLETED
-            job.completed_at = time.time()
+            if not keep_running:
+                job.status = JobStatus.COMPLETED
+                job.completed_at = time.time()
             elapsed = time.time() - start_time
             logger.info(
                 "[PIPELINE] COMPLETE | city=%s | brands=%d | duration=%s (%.2f min)",
@@ -110,6 +115,37 @@ async def _execute_pipeline(job: ProspectJob) -> None:
         job.status = JobStatus.FAILED
         job.error = str(e) or "Erro interno no servidor"
         job.completed_at = time.time()
+
+
+async def _run_job(job: ProspectJob) -> None:
+    """Regenerating cleans up old leads only after the search succeeded, so a failure changes nothing."""
+    if not job.regenerate:
+        await _execute_pipeline(job)
+        return
+
+    try:
+        old_leads = await get_active_leads_for_city(job.city)
+    except Exception as e:
+        logger.exception("Could not read leads to regenerate '%s'", job.city)
+        job.status = JobStatus.FAILED
+        job.error = str(e) or "Erro interno no servidor"
+        job.completed_at = time.time()
+        return
+
+    await _execute_pipeline(job, keep_running=True)
+    if job.status != JobStatus.RUNNING:
+        return
+
+    try:
+        job.progress = [*job.progress, f"🔁 A rever {len(old_leads)} marcas já guardadas…"]
+        job.summary = await recheck_city_leads(job.city, old_leads)
+        job.summary["added"] = job.brand_count
+        job.status = JobStatus.COMPLETED
+    except Exception as e:
+        logger.exception("Regeneration failed for '%s'", job.city)
+        job.status = JobStatus.FAILED
+        job.error = str(e) or "Erro interno no servidor"
+    job.completed_at = time.time()
 
 
 async def _cached_response(city: str) -> dict:
@@ -127,7 +163,7 @@ async def _cached_response(city: str) -> dict:
     }
 
 
-async def start_prospect_job(city: str, force_refresh: bool = False) -> dict:
+async def start_prospect_job(city: str, force_refresh: bool = False, regenerate: bool = False) -> dict:
     """Start a background pipeline or return cache / in-flight status."""
     city = city.strip()
     if not city:
@@ -145,9 +181,9 @@ async def start_prospect_job(city: str, force_refresh: bool = False) -> dict:
         if not force_refresh and await city_has_results(city):
             return await _cached_response(city)
 
-        job = ProspectJob(city=city, force_refresh=force_refresh)
+        job = ProspectJob(city=city, force_refresh=force_refresh, regenerate=regenerate)
         _jobs[key] = job
-        job.task = asyncio.create_task(_execute_pipeline(job))
+        job.task = asyncio.create_task(_run_job(job))
         logger.info("Queued background job for '%s'", city)
         return job.to_dict()
 

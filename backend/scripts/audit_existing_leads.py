@@ -14,7 +14,7 @@ import asyncio
 import csv
 from pathlib import Path
 
-from evaluation.lead_quality_eval import evaluate_brands
+from services.lead_recheck import assess_brands
 from services.postgres import PostgresManager
 
 REPORT_BATCH_SIZE = 12
@@ -38,7 +38,7 @@ async def report(out: str, city: str | None, limit: int | None) -> None:
         for start in range(0, len(leads), REPORT_BATCH_SIZE):
             batch = leads[start:start + REPORT_BATCH_SIZE]
             rows = [{"name": r["name"], "url": r["website_url"], "country": r["country"]} for r in batch]
-            for lead, brand in zip(batch, await evaluate_brands(rows)):
+            for lead, brand in zip(batch, await assess_brands(rows)):
                 writer.writerow([
                     lead["id"], lead["city"], lead["name"], lead["website_url"],
                     brand["_gate"]["accepted"], brand["_gate"]["code"], brand["_gate"]["reason"],

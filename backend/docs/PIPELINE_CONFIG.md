@@ -52,4 +52,5 @@ Offline rubric evaluation: `rubric.yaml` + `evaluation/rubric_evaluator.py` (not
 - Prices count only with a quote from the brand's own site for a whole suit (`services/price_evidence.py`). Otherwise the lead shows "Preço não confirmado".
 - `MAX_OUTPUT_BRANDS` is a limit, not a target.
 - Measure changes with `python -m evaluation.lead_quality_eval --sample golden --out report.json`. Labels in `evaluation/golden_leads.yaml` need confirming by the commercial team.
+- "Regenerar" in Cidades guardadas (`POST /api/cities/{city}/regenerate`) runs a new search, then re-checks each saved lead: passing leads are updated and failing ones hidden. Contacted and converted leads are never hidden, and a technical failure changes nothing.
 - `python -m scripts.audit_existing_leads report --out audit.csv` checks saved leads without changing them. `hide --ids file` hides leads, and `unhide` restores them.
