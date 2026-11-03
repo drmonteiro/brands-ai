@@ -5,9 +5,10 @@ import asyncio
 import logging
 import os
 import sys
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from services.auth import require_user
 from services.database import init_database
 from services.postgres import PostgresManager
 
@@ -75,6 +76,10 @@ app = FastAPI(
     title="Confeções Lança Lead Generation API",
     version="1.1.0",
     lifespan=lifespan,
+    # The schema would list every route to anyone. Nothing in the app uses these.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 _origins = _cors_origins()
@@ -91,19 +96,17 @@ app.add_middleware(
 # Core routers — lightweight imports for fast cold start
 from routers import prospects, cities, analytics, workflow, email, export, linkedin
 
-app.include_router(workflow.router)
-app.include_router(prospects.router)
-app.include_router(cities.router)
-app.include_router(analytics.router)
-app.include_router(email.router)
-app.include_router(linkedin.router)
-app.include_router(export.router)
+_requires_user = [Depends(require_user)]
+
+for _router in (workflow, prospects, cities, analytics, email, linkedin, export):
+    app.include_router(_router.router, dependencies=_requires_user)
 
 # Heavy routers (LangChain, Twilio) — optional; core API must start even if these fail
 def _register_heavy_routers() -> None:
     try:
         from routers import chat, whatsapp
-        app.include_router(chat.router)
+        app.include_router(chat.router, dependencies=_requires_user)
+        # Twilio can't send a user token: the webhook checks Twilio's signature itself.
         app.include_router(whatsapp.router)
         logger.info("Chat/WhatsApp routers registered")
     except Exception as e:

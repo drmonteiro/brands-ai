@@ -8,7 +8,7 @@ import {
   isHeadquartersInSearchCity,
   parseLinkedInContacts,
 } from "@/lib/types";
-import { apiUrl } from "@/lib/apiBase";
+import { apiFetch } from "@/lib/apiBase";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -63,7 +63,7 @@ export const BrandCard = memo(function BrandCard({ brand, managerName = "Comerci
     if (!feedbackState.type) return;
 
     try {
-      const response = await fetch(apiUrl(`/api/prospects/${brand.id}/feedback`), {
+      const response = await apiFetch(`/api/prospects/${brand.id}/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -86,7 +86,7 @@ export const BrandCard = memo(function BrandCard({ brand, managerName = "Comerci
   const handleFindContacts = async () => {
     setIsFindingContacts(true);
     try {
-      const response = await fetch(apiUrl(`/api/prospects/${brand.id}/linkedin-contacts`), { method: "POST" });
+      const response = await apiFetch(`/api/prospects/${brand.id}/linkedin-contacts`, { method: "POST" });
       if (!response.ok) {
         const err = await response.json().catch(() => null);
         throw new Error(err?.detail);
@@ -111,7 +111,7 @@ export const BrandCard = memo(function BrandCard({ brand, managerName = "Comerci
     setCurrentStatus(newStatus);
     
     try {
-      const response = await fetch(apiUrl(`/api/prospects/${brand.id}/status`), {
+      const response = await apiFetch(`/api/prospects/${brand.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
