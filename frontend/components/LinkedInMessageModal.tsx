@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Copy, ExternalLink, Linkedin, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
-import { apiUrl } from "@/lib/apiBase";
+import { apiFetch } from "@/lib/apiBase";
 import { BrandLead, LinkedInContact } from "@/lib/types";
 import { Button } from "./ui/button";
 
@@ -39,7 +39,7 @@ export function LinkedInMessageModal({ brand, contacts, onClose, onProfileOpened
     setIsLoading(true);
     (async () => {
       try {
-        const response = await fetch(apiUrl("/api/linkedin/draft"), {
+        const response = await apiFetch("/api/linkedin/draft", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ brandData: brand, contact }),

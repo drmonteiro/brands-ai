@@ -15,7 +15,7 @@ import {
   CheckCircle2,
   Loader2,
 } from "lucide-react";
-import { apiUrl } from "@/lib/apiBase";
+import { apiFetch } from "@/lib/apiBase";
 
 type ProspectJobStatus = {
   city: string;
@@ -71,8 +71,7 @@ export default function Home() {
         if (cancelled) break;
 
         try {
-          const response = await fetch(
-            apiUrl(`/api/prospect/status?city=${encodeURIComponent(activeJobCity)}`)
+          const response = await apiFetch(`/api/prospect/status?city=${encodeURIComponent(activeJobCity)}`
           );
           if (!response.ok) continue;
 
@@ -123,7 +122,7 @@ export default function Home() {
     setActiveJobCity(null);
 
     try {
-      const response = await fetch(apiUrl("/api/prospect"), {
+      const response = await apiFetch("/api/prospect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ city: targetCity, force_refresh: forceRefresh }),

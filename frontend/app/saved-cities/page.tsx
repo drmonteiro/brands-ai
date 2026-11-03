@@ -21,7 +21,7 @@ import { FilterPanel, ProspectFilters } from "@/components/FilterPanel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BrandLead } from "@/lib/types";
-import { apiUrl, fetchWithTimeout } from "@/lib/apiBase";
+import { apiFetch, fetchWithTimeout } from "@/lib/apiBase";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 const BrandCard = dynamic(
@@ -127,7 +127,7 @@ export default function SavedCitiesPage() {
                 if (debouncedFilters.maxPrice) params.append("max_price", debouncedFilters.maxPrice.toString());
                 if (debouncedFilters.fitForLanca === "high") params.append("min_score", "70");
                 if (debouncedFilters.fitForLanca === "medium") params.append("min_score", "50");
-                const response = await fetch(apiUrl(`/api/prospects?${params.toString()}`));
+                const response = await apiFetch(`/api/prospects?${params.toString()}`);
                 if (!response.ok) {
                     const t = await response.text().catch(() => "");
                     throw new Error(t || `HTTP ${response.status}`);
@@ -148,7 +148,7 @@ export default function SavedCitiesPage() {
         return () => { cancelled = true; };
     }, [selectedCity, debouncedFilters]);
 
-    const handleExportCSV = () => {
+    const handleExportCSV = async () => {
         if (!selectedCity) return;
         const params = new URLSearchParams({ city: selectedCity });
         if (activeFilters.minStores) params.append("min_stores", activeFilters.minStores.toString());
@@ -157,7 +157,20 @@ export default function SavedCitiesPage() {
         if (activeFilters.maxPrice) params.append("max_price", activeFilters.maxPrice.toString());
         if (activeFilters.fitForLanca === 'high') params.append("min_score", "70");
         if (activeFilters.fitForLanca === 'medium') params.append("min_score", "50");
-        window.open(apiUrl(`/api/export/csv?${params.toString()}`), "_blank");
+        try {
+            // A plain link can't carry the auth token, so download it through a fetch.
+            const response = await apiFetch(`/api/export/csv?${params.toString()}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const url = URL.createObjectURL(await response.blob());
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `lanca-${selectedCity}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            console.error("[saved-cities] export failed:", e);
+            toast.error("Não foi possível exportar o CSV.");
+        }
     };
 
     const handleDeleteCity = async (e?: React.MouseEvent) => {
@@ -172,8 +185,7 @@ export default function SavedCitiesPage() {
     const confirmDeleteCity = async () => {
         if (!cityToDelete) return;
         try {
-            const response = await fetch(
-                apiUrl(`/api/cities/${encodeURIComponent(cityToDelete)}`),
+            const response = await apiFetch(`/api/cities/${encodeURIComponent(cityToDelete)}`,
                 { method: "DELETE" }
             );
             if (response.ok) {

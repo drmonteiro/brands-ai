@@ -49,6 +49,46 @@ jobs:
           EXTERNAL_AGENT_NAME: "UK Agent"
           EXTERNAL_AGENT_REGION: "UK"
 
+  # A separate job so a settings problem can't block a frontend deploy.
+  sync_app_settings:
+    if: github.event_name == 'push'
+    needs: build_and_deploy_job
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set BACKEND_JWT_SECRET on the Static Web App
+        env:
+          BACKEND_JWT_SECRET: ${{ secrets.BACKEND_JWT_SECRET }}
+          APP_HOST: ambitious-coast-0f9176703.1.azurestaticapps.net
+          API_VERSION: "2023-01-01"
+        run: |
+          set -euo pipefail
+          if [ -z "$BACKEND_JWT_SECRET" ]; then
+            echo "BACKEND_JWT_SECRET is not set in GitHub, nothing to sync."
+            exit 0
+          fi
+          ID=$(az staticwebapp list --query "[?defaultHostname=='$APP_HOST'] | [0].id" -o tsv)
+          if [ -z "$ID" ]; then
+            echo "::error::No Static Web App found for $APP_HOST with these credentials."
+            exit 1
+          fi
+          # Read and merge, so the other settings (such as NEXTAUTH_SECRET) are kept.
+          az rest --method post --url "https://management.azure.com$ID/listAppSettings?api-version=$API_VERSION" -o json > current.json
+          if [ "$(jq -r '.properties.BACKEND_JWT_SECRET // empty' current.json)" = "$BACKEND_JWT_SECRET" ]; then
+            echo "Already up to date."
+          else
+            jq --arg value "$BACKEND_JWT_SECRET" '{properties: (.properties + {BACKEND_JWT_SECRET: $value})}' current.json > merged.json
+            az rest --method put --url "https://management.azure.com$ID/config/appsettings?api-version=$API_VERSION" --body @merged.json -o none
+            echo "Updated."
+          fi
+          echo "Setting names:"
+          az rest --method post --url "https://management.azure.com$ID/listAppSettings?api-version=$API_VERSION" -o json | jq -r '.properties | keys[]'
+          rm -f current.json merged.json
+
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
