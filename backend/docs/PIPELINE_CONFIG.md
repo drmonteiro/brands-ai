@@ -44,3 +44,12 @@ The score_save node looks up to 3 decision-makers for each new lead it keeps (`s
 Weights in `services/runtime_scoring.py`: `WEIGHT_SIMILARITY`, `WEIGHT_LLM_FIT`, `WEIGHT_PRICE`, `WEIGHT_SIZE`.
 
 Offline rubric evaluation: `rubric.yaml` + `evaluation/rubric_evaluator.py` (not used in the live pipeline).
+
+## Lead quality
+
+`rubric.yaml` holds the rules, read by `services/lead_rules.py`. After scoring, `services/lead_gate.py` decides each brand and stores the reason in `lead_rejections`.
+
+- Prices count only with a quote from the brand's own site for a whole suit (`services/price_evidence.py`). Otherwise the lead shows "Preço não confirmado".
+- `MAX_OUTPUT_BRANDS` is a limit, not a target.
+- Measure changes with `python -m evaluation.lead_quality_eval --sample golden --out report.json`. Labels in `evaluation/golden_leads.yaml` need confirming by the commercial team.
+- `python -m scripts.audit_existing_leads report --out audit.csv` checks saved leads without changing them. `hide --ids file` hides leads, and `unhide` restores them.

@@ -16,3 +16,6 @@ def _no_real_linkedin_lookup(monkeypatch):
         "agents.nodes.persistence.save_brand_linkedin_contacts",
         AsyncMock(return_value=0),
     )
+    # Tests don't have a database, and these only record why brands were rejected.
+    monkeypatch.setattr("agents.nodes.persistence.save_lead_rejections", AsyncMock())
+    monkeypatch.setattr("agents.nodes.filter.save_lead_rejections", AsyncMock())

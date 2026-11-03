@@ -9,6 +9,15 @@ City-presence weight in final_score: see WEIGHT_* below (Fase 7.1 pending busine
 
 from typing import Optional, Tuple
 
+from services.lead_rules import (
+    PRICE_IDEAL_MAX,
+    PRICE_IDEAL_MIN,
+    PRICE_REJECT_ABOVE,
+    PRICE_REJECT_BELOW,
+    STORES_IDEAL_MAX,
+    STORES_REJECT_ABOVE,
+)
+
 # --- Final score weights (must sum to 1.0 when city_presence is enabled) ---
 WEIGHT_SIMILARITY = 0.40
 WEIGHT_LLM_FIT = 0.30
@@ -24,28 +33,28 @@ WEIGHT_SIZE = 0.15
 
 
 def calculate_price_alignment_score(price_eur: float) -> float:
-    """Suit price alignment 0-100 (€500-€1700 flat max). Unknown price → neutral 50."""
+    """Suit price alignment 0-100, flat across the ideal band. Unknown price → neutral 50."""
     price = float(price_eur or 0)
     if price == 0:
         return 50.0
-    if 500 <= price <= 1700:
+    if PRICE_IDEAL_MIN <= price <= PRICE_IDEAL_MAX:
         return 100.0
-    if 375 <= price < 500:
-        return 30.0 + 70.0 * (price - 375) / 125
-    if 1700 < price <= 2500:
-        return 100.0 - 70.0 * (price - 1700) / 800
+    if PRICE_REJECT_BELOW <= price < PRICE_IDEAL_MIN:
+        return 30.0 + 70.0 * (price - PRICE_REJECT_BELOW) / (PRICE_IDEAL_MIN - PRICE_REJECT_BELOW)
+    if PRICE_IDEAL_MAX < price <= PRICE_REJECT_ABOVE:
+        return 100.0 - 70.0 * (price - PRICE_IDEAL_MAX) / (PRICE_REJECT_ABOVE - PRICE_IDEAL_MAX)
     return 10.0
 
 
 def calculate_size_alignment_score(store_count: int) -> float:
-    """Store count alignment 0-100 (1-20 flat max). Unknown → neutral 50."""
+    """Store count alignment 0-100, flat up to the ideal maximum. Unknown → neutral 50."""
     stores = int(store_count or 0)
     if stores == 0:
         return 50.0
-    if 1 <= stores <= 20:
+    if 1 <= stores <= STORES_IDEAL_MAX:
         return 100.0
-    if 20 < stores <= 30:
-        return 100.0 - 70.0 * (stores - 20) / 10
+    if STORES_IDEAL_MAX < stores <= STORES_REJECT_ABOVE:
+        return 100.0 - 70.0 * (stores - STORES_IDEAL_MAX) / (STORES_REJECT_ABOVE - STORES_IDEAL_MAX)
     return 10.0
 
 

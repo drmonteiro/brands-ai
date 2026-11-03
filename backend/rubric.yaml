@@ -72,3 +72,13 @@ bonus_criteria:
     type: boolean
     field: appointment_only
     expected: false
+
+# Quality gate (services/lead_gate.py). Fit is the 0-10 assessment against current
+# clients; similarity is the 0-100 embedding match. Calibrate with evaluation/.
+# Similarity barely separates good from bad (a budget chain scored 66, good tailors
+# 49-68), so it's only a floor for brands without a price: the assessed level decides.
+lead_gate:
+  min_fit: 6
+  strong_fit: 7
+  strong_similarity: 47
+  accepted_categories: [tailoring_core, menswear_suits_prominent]

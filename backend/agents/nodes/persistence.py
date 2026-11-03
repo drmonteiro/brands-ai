@@ -5,7 +5,6 @@ and LLM fit assessment. Calculates final scores and saves top 20 to PostgreSQL.
 """
 
 import asyncio
-import json
 import logging
 import os
 from typing import List, Dict, Any, Union
@@ -13,7 +12,9 @@ from typing import List, Dict, Any, Union
 from models import ProspectorState, BrandLead
 from services.vector_db import find_similar_clients_batch
 from services.brand_facts import save_brand_linkedin_contacts
-from services.database import save_prospect, get_existing_urls_for_city
+from services.database import save_lead_rejections, save_prospect, get_existing_urls_for_city
+from services.lead_gate import GateDecision, evaluate_lead
+from services.linkedin_contacts import simplify_name
 from services.linkedin_contacts import attach_linkedin_contacts
 from services.runtime_scoring import (
     calculate_city_presence_score,
@@ -26,12 +27,17 @@ from services.location_enrichment import (
     resolve_target_city_context,
 )
 from data.lanca_clients import LANCA_CLIENTS
-from .utils import get_llm_for_task, normalize_url
+from .llm_schemas import FitAssessment, validate_items
+from .utils import ainvoke_json, get_llm_for_task, normalize_url
 from .pipeline_timing import step_begin, step_end
 
 logger = logging.getLogger("node.persistence")
 
+# A limit, not a target: a city can return 6 great leads rather than 20 mixed ones.
 MAX_OUTPUT_BRANDS = 20
+SIMILAR_CLIENTS_COMPARED = 3
+SIMILARITY_ATTEMPTS = 3
+SIMILARITY_RETRY_DELAY_SEC = 2
 # Fraction of brands with embedding failures that marks the whole run as degraded
 SIMILARITY_DEGRADED_FAILURE_RATIO = 0.25
 FIT_BATCH_SIZE = 8
@@ -107,7 +113,7 @@ async def _llm_fit_assessment(brands: List[Dict], target_city: str) -> List[Dict
         f"Name: {b.get('name', '?')}\n"
         f"URL: {b.get('website_url', '?')}\n"
         f"Country: {b.get('origin_country', '?')}\n"
-        f"Price: €{b.get('avg_suit_price_eur', '?')}\n"
+        f"Price: €{b.get('avg_suit_price_eur')}\n"
         f"Stores: {b.get('store_count', '?')}\n"
         f"Wool: {b.get('wool_percentage', '?')}\n"
         f"MTM: {b.get('made_to_measure', '?')}\n"
@@ -117,49 +123,101 @@ async def _llm_fit_assessment(brands: List[Dict], target_city: str) -> List[Dict
         for i, b in enumerate(brands)
     )
 
-    prompt = f"""You are evaluating menswear brands as potential manufacturing partners for Confeções Lança, a Portuguese suit manufacturer.
+    prompt = f"""You are evaluating menswear brands as potential clients of Confeções Lança, a Portuguese suit manufacturer.
 
-LANÇA'S IDEAL PARTNER PROFILE:
-- Independent menswear retailers/boutiques (NOT large department stores)
-- Mid-to-high range: suits €500-€1,700, jackets €300-€1,000
-- Fewer than 20 physical stores (easier partnership)
-- Brands that value European manufacturing quality
-- Own label collections or interested in private label production
-- Headquartered or strong presence in {target_city}
+A great lead is at the SAME LEVEL as Lança's current clients: same kind of business, same price positioning, similar scale.
+Judge each brand against this table of every current client.
 
-CURRENT LANÇA CLIENTS (for reference):
-- Hawes & Curtis (UK, 30 stores, €500 suits, 10yr partner)
-- Carlos Nieto (Colombia, 20 stores, €800 suits, 12yr partner)
-- Walker Slater (UK, 5 stores, €800 suits, Scottish tweed specialist)
-- Gresham Blake (UK, 1 store, €1000 suits, bespoke Brighton tailor)
-- Garcia Madrid (Spain, 1 store, €1000 suits, 10yr partner)
+CURRENT LANÇA CLIENTS:
+{_client_benchmark_table()}
+
+WHAT THEY HAVE IN COMMON:
+- Independent tailors and menswear brands with suits or tailoring at the core, usually under their own label
+- Suits mostly €500-€1,000, with a few from €375 up to €1,500
+- Usually 1-8 stores, and at most 30
 
 BRANDS TO EVALUATE ({len(brands)} total):
 {brands_block}
 
-TASK: Rate each brand 0-10 on fit as a Lança partner.
-10 = perfect match (similar to best current clients)
-7-9 = strong fit
-4-6 = moderate fit
-1-3 = poor fit
-0 = not suitable
+TASK: For each brand, return:
+- fit_score: 0-10. 10 = could be a current client. 7-9 = strong. 4-6 = moderate. 1-3 = poor. 0 = not suitable
+- level: "same" (comparable to the clients above), "above" (clearly more luxury or larger), "below" (clearly cheaper or mass market), or "different_category" (not a suit or tailoring business)
+- closest_client: the most comparable client from the table, or null
+- fit_reason: one sentence in Portuguese saying why, naming what makes it comparable or not
 
-Return ONLY a JSON array:
-[{{"url": "...", "fit_score": 0-10, "fit_reason": "one sentence explanation"}}]"""
+"Price: €None" means the price is unknown. Judge the level from the other evidence and don't assume it's low.
+
+Return ONLY a JSON array, where "i" is the brand number:
+[{{"i": 1, "fit_score": 0, "level": "same", "closest_client": "...", "fit_reason": "..."}}]"""
 
     try:
-        response = await llm.ainvoke(prompt)
-        raw = response.content.replace("```json", "").replace("```", "").strip()
-        results = json.loads(raw)
-        if not isinstance(results, list):
-            results = [results]
-        return results
+        assessments = validate_items(FitAssessment, await ainvoke_json(llm, prompt))
     except Exception as e:
-        logger.warning("LLM fit assessment error: %s — defaulting to 5", e)
-        return [
-            {"url": b.get("website_url", ""), "fit_score": 5, "fit_reason": "assessment error"}
-            for b in brands
-        ]
+        logger.warning("LLM fit assessment error: %s — these brands stay unassessed", e)
+        assessments = []
+
+    by_number = {a.i: a for a in assessments}
+    results = []
+    for number, brand in enumerate(brands, start=1):
+        assessment = by_number.get(number)
+        results.append({
+            "url": brand.get("website_url", ""),
+            "fit_score": assessment.fit_score if assessment else 0,
+            "client_level": assessment.level if assessment else None,
+            "closest_client": assessment.closest_client if assessment else None,
+            "fit_reason": assessment.fit_reason if assessment else "",
+        })
+    return results
+
+
+def _client_benchmark_table() -> str:
+    return "\n".join(
+        f"- {c['name']} ({c.get('country', '?')}): {c.get('store_count', '?')} stores, "
+        f"suits €{c.get('pvp_suits_eur') or c.get('avg_suit_price_eur') or '?'}, "
+        f"{c.get('brand_type', '?')}, {c.get('brand_style', '?')}, {c.get('business_model', '?')}"
+        for c in LANCA_CLIENTS
+    )
+
+
+def _similarity_from_matches(matches: List[Dict]) -> float:
+    """Average of the closest clients: scores sit in a narrow band, so one match says little."""
+    return min(sum(m["similarity"] for m in matches) / len(matches), 100)
+
+
+async def _find_similar_with_retries(profile_texts: List[str]) -> List[List[Dict]]:
+    for attempt in range(1, SIMILARITY_ATTEMPTS + 1):
+        try:
+            return await find_similar_clients_batch(profile_texts, n_results=SIMILAR_CLIENTS_COMPARED)
+        except Exception as e:
+            if attempt == SIMILARITY_ATTEMPTS:
+                raise
+            logger.warning("Similarity attempt %d failed, retrying: %r", attempt, e)
+            await asyncio.sleep(SIMILARITY_RETRY_DELAY_SEC)
+
+
+def _apply_quality_gate(brands: List[Dict]) -> tuple:
+    """Splits brands into (accepted, rejections), recording the reason for every rejection."""
+    accepted, rejections = [], []
+    seen_names = set()
+    # Best first, so when one brand was found on several URLs the strongest is kept.
+    for brand in sorted(brands, key=lambda b: b.get("final_score", 0), reverse=True):
+        decision = evaluate_lead(brand)
+        name = simplify_name(brand.get("name") or "")
+        if decision.accepted and name in seen_names:
+            decision = GateDecision(False, "duplicate_brand", "A mesma marca já foi aceite noutro endereço.")
+        if decision.accepted:
+            seen_names.add(name)
+            accepted.append(brand)
+        else:
+            rejections.append({
+                "url": brand.get("website_url", ""),
+                "name": brand.get("name"),
+                "stage": "gate",
+                "code": decision.code,
+                "reason": decision.reason,
+            })
+            logger.info("  REJECTED %s [%s]: %s", brand.get("name", "?"), decision.code, decision.reason)
+    return accepted, rejections
 
 
 async def _attach_contacts_to_new_leads(top_brands: List[Dict], existing_urls) -> int:
@@ -210,8 +268,10 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
         }
 
     # --- Pre-filter: Exclude existing Lança clients ---
-    lanca_client_names = {c["name"].lower().strip() for c in LANCA_CLIENTS}
-    lanca_client_names.update(c.get("brand_name", "").lower().strip() for c in LANCA_CLIENTS if c.get("brand_name"))
+    # Simplified so accents can't hide a client: "GARCÍA MADRID" is client Garcia Madrid.
+    lanca_client_names = {simplify_name(c["name"]) for c in LANCA_CLIENTS}
+    lanca_client_names.update(simplify_name(c.get("brand_name", "")) for c in LANCA_CLIENTS)
+    lanca_client_names.discard("")
 
     pre_filter_count = len(enriched_brands)
     filtered_out_clients = []
@@ -219,7 +279,7 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
     remaining = []
 
     for brand in enriched_brands:
-        brand_name_lower = (brand.get("name") or "").lower().strip()
+        brand_name_lower = simplify_name(brand.get("name") or "")
 
         # Check if this is an existing Lança client (fuzzy: check if client name is contained)
         is_existing_client = False
@@ -282,7 +342,7 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
     urls = [b.get("website_url", "") for b in enriched_brands]
 
     try:
-        similar_lists = await find_similar_clients_batch(profile_texts, n_results=3)
+        similar_lists = await _find_similar_with_retries(profile_texts)
         if len(similar_lists) != len(enriched_brands):
             raise ValueError(
                 f"Similarity batch length mismatch: {len(similar_lists)} vs {len(enriched_brands)}"
@@ -290,15 +350,16 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
         for brand, url, similar in zip(enriched_brands, urls, similar_lists):
             try:
                 if similar:
-                    top_sim = min(similar[0]["similarity"], 100)
-                    similarity_scores[url] = top_sim
+                    similarity_scores[url] = _similarity_from_matches(similar)
                     similar_client_data[url] = similar
                     brand["similarity_failed"] = False
                 else:
-                    similarity_scores[url] = 50.0
+                    # No clients to compare with is a failure, not an average brand.
+                    similarity_scores[url] = 0.0
                     similar_client_data[url] = []
-                    brand["similarity_failed"] = False
-                    logger.warning(
+                    brand["similarity_failed"] = True
+                    similarity_failure_count += 1
+                    logger.error(
                         "SIMILARITY_EMPTY brand=%s url=%s (no similar clients returned)",
                         brand.get("name", "?"),
                         url,
@@ -356,6 +417,11 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
             similarity_failure_count,
             total_for_similarity,
         )
+        # Saving now would store leads with made-up scores, as past runs silently did.
+        raise RuntimeError(
+            "Não foi possível comparar as marcas com os clientes atuais. "
+            "A pesquisa foi cancelada e nada foi guardado. Tenta novamente."
+        )
 
     step_end(
         logger,
@@ -399,8 +465,10 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
         for result in fit_results:
             url = result.get("url", "")
             fit_scores[url] = {
-                "score": result.get("fit_score", 5),
+                "score": result.get("fit_score", 0),
                 "reason": result.get("fit_reason", ""),
+                "level": result.get("client_level"),
+                "closest_client": result.get("closest_client"),
             }
         logger.info("LLM fit batch %d/%d done", batch_num, total_fit_batches)
 
@@ -413,7 +481,7 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
     for brand in enriched_brands:
         url = brand.get("website_url", "")
         sim_score = similarity_scores.get(url, 50.0)
-        fit_data = fit_scores.get(url, {"score": 5, "reason": ""})
+        fit_data = fit_scores.get(url, {"score": 0, "reason": ""})
         llm_fit = fit_data["score"]
 
         price = brand.get("avg_suit_price_eur") or 0
@@ -436,6 +504,8 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
         brand["similarity_score"] = round(sim_score, 2)
         brand["llm_fit_score"] = llm_fit
         brand["llm_fit_reason"] = fit_data["reason"]
+        brand["client_level"] = fit_data.get("level")
+        brand["closest_client"] = fit_data.get("closest_client")
         brand["price_score"] = round(price_score, 2)
         brand["size_score"] = round(size_score, 2)
 
@@ -454,10 +524,18 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
         scored_brands.append(brand)
 
     # Sort by final score descending
-    scored_brands.sort(key=lambda b: b.get("final_score", 0), reverse=True)
+    accepted_brands, rejections = _apply_quality_gate(scored_brands)
+    await save_lead_rejections(target_city, rejections)
+    progress.append(
+        f"✅ {len(accepted_brands)} marcas cumprem o perfil; {len(rejections)} rejeitadas"
+    )
 
-    # Take top N
-    top_brands = scored_brands[:MAX_OUTPUT_BRANDS]
+    # Confirmed prices first, so a brand with an unknown price never outranks a proven one.
+    accepted_brands.sort(
+        key=lambda b: (b.get("price_status") == "confirmed", b.get("final_score", 0)),
+        reverse=True,
+    )
+    top_brands = accepted_brands[:MAX_OUTPUT_BRANDS]
 
     logger.info("Scoring complete. Top %d brands:", len(top_brands))
     for i, b in enumerate(top_brands):
@@ -533,6 +611,12 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
             "contact_linkedin": brand.get("contact_linkedin"),
             "linkedin_contacts": brand.get("linkedin_contacts") or [],
             "linkedin_contacts_checked_at": brand.get("linkedin_contacts_checked_at"),
+            "price_status": brand.get("price_status"),
+            "price_source_url": brand.get("price_source_url"),
+            "price_evidence": brand.get("price_evidence") or [],
+            "fit_reason": brand.get("llm_fit_reason"),
+            "closest_client": brand.get("closest_client"),
+            "core_category": brand.get("core_category"),
         }
 
         similar = similar_client_data.get(url, [])
@@ -608,6 +692,12 @@ async def score_and_save_node(state: Union[ProspectorState, Dict[str, Any]]) -> 
                     contact_linkedin=prospect_dict.get("contact_linkedin"),
                     linkedin_contacts=prospect_dict.get("linkedin_contacts"),
                     linkedin_contacts_checked_at=prospect_dict.get("linkedin_contacts_checked_at"),
+                    price_status=prospect_dict.get("price_status"),
+                    price_source_url=prospect_dict.get("price_source_url"),
+                    price_evidence=prospect_dict.get("price_evidence"),
+                    fit_reason=prospect_dict.get("fit_reason"),
+                    closest_client=prospect_dict.get("closest_client"),
+                    core_category=prospect_dict.get("core_category"),
                 )
                 verified_brands.append(brand_lead)
                 logger.info("  SAVED: %s (score=%.1f)", prospect_dict["name"], brand.get("final_score", 0))

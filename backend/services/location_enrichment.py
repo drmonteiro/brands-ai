@@ -344,37 +344,32 @@ async def exa_price_lookup(
     domain = get_domain_from_url(website_url)
     if not domain:
         return ""
-    query = f"{brand_name} suits price"
-
-    async def _search(include_domain: bool):
-        kwargs = {
-            "num_results": 3,
-            "type": "auto",
-            "contents": {"text": {"maxCharacters": 5000}},
-        }
-        if include_domain:
-            kwargs["include_domains"] = [domain.replace("www.", "")]
-        try:
-            response = await asyncio.to_thread(exa.search, query, **kwargs)
-            texts = [
-                r.text for r in response.results
-                if hasattr(r, "text") and r.text
-            ]
-            if texts:
-                return "\n---\n".join(texts)
-        except Exception as e:
-            logger.debug("  Exa price failed for %s (domain=%s): %s", brand_name, include_domain, e)
-        return ""
+    query = f"{brand_name} suit price"
 
     async def _run():
-        text = await _search(True)
-        if text:
-            return text
-        return await _search(False)
+        try:
+            response = await asyncio.to_thread(
+                exa.search,
+                query,
+                num_results=4,
+                type="auto",
+                # Only the brand's own site: another shop's price is not this brand's price.
+                include_domains=[domain.replace("www.", "")],
+                contents={"text": {"maxCharacters": 5000}},
+            )
+        except Exception as e:
+            logger.debug("  Exa price failed for %s: %s", brand_name, e)
+            return ""
+        return "\n---\n".join(
+            f"SOURCE: {r.url}\n{r.text}"
+            for r in response.results
+            if getattr(r, "text", None)
+        )
 
     if sem:
         async with sem:
             return await _run()
+    return await _run()
     return await _run()
 
 

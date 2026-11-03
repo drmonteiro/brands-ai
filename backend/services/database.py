@@ -189,8 +189,10 @@ async def save_prospect(
                 headquarters_address, product_images,
                 headquarters_city, headquarters_confidence, local_store_address,
                 city_presence_type, store_count_confidence,
-                linkedin_contacts, linkedin_contacts_checked_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42::jsonb, $43)
+                linkedin_contacts, linkedin_contacts_checked_at,
+                price_status, price_source_url, price_evidence,
+                fit_reason, closest_client, core_category
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42::jsonb, $43, $44, $45, $46::jsonb, $47, $48, $49)
             ON CONFLICT (id) DO UPDATE SET
                 avg_suit_price_eur = EXCLUDED.avg_suit_price_eur,
                 final_score = EXCLUDED.final_score,
@@ -212,6 +214,12 @@ async def save_prospect(
                 linkedin_contacts = CASE WHEN EXCLUDED.linkedin_contacts = '[]'::jsonb
                     THEN prospects.linkedin_contacts ELSE EXCLUDED.linkedin_contacts END,
                 linkedin_contacts_checked_at = COALESCE(EXCLUDED.linkedin_contacts_checked_at, prospects.linkedin_contacts_checked_at),
+                price_status = COALESCE(EXCLUDED.price_status, prospects.price_status),
+                price_source_url = COALESCE(EXCLUDED.price_source_url, prospects.price_source_url),
+                price_evidence = EXCLUDED.price_evidence,
+                fit_reason = COALESCE(EXCLUDED.fit_reason, prospects.fit_reason),
+                closest_client = COALESCE(EXCLUDED.closest_client, prospects.closest_client),
+                core_category = COALESCE(EXCLUDED.core_category, prospects.core_category),
                 updated_at = CURRENT_TIMESTAMP
         """,
             prospect_id,
@@ -222,7 +230,7 @@ async def save_prospect(
             str(prospect.get("country", "Unknown")),
             str(prospect.get("country_code", "XX")),
             int(prospect.get("store_count", 0)),
-            float(prospect.get("avg_suit_price_eur", 0)),
+            float(prospect.get("avg_suit_price_eur") or 0),
             str(prospect.get("brand_style", "unknown")),
             str(prospect.get("business_model", "unknown")),
             str(prospect.get("description", "")),
@@ -257,6 +265,12 @@ async def save_prospect(
             str(prospect.get("store_count_confidence", "unknown") or "unknown"),
             json.dumps(prospect.get("linkedin_contacts") or []),
             prospect.get("linkedin_contacts_checked_at"),
+            prospect.get("price_status"),
+            prospect.get("price_source_url"),
+            json.dumps(prospect.get("price_evidence") or []),
+            prospect.get("fit_reason"),
+            prospect.get("closest_client"),
+            prospect.get("core_category"),
         )
         
         clear_cities_cache()
@@ -275,7 +289,7 @@ async def get_prospects_by_city(city: str, limit: int = 25) -> List[Dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT DISTINCT ON (domain) * FROM prospects 
-            WHERE city = $1
+            WHERE city = $1 AND quality_status = 'active'
             ORDER BY domain, final_score DESC
             LIMIT $2
         """, normalized_city, limit)
@@ -306,6 +320,7 @@ async def get_all_prospects(limit: int = 100) -> List[Dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT DISTINCT ON (domain) * FROM prospects 
+            WHERE quality_status = 'active'
             ORDER BY domain, final_score DESC
             LIMIT $1
         """, limit)
@@ -361,7 +376,7 @@ async def get_prospects_filtered(
     """
     Advanced filtering for prospects with multiple criteria.
     """
-    conditions = []
+    conditions = ["quality_status = 'active'"]
     params = []
     
     if city:
@@ -657,7 +672,7 @@ async def get_city_stats(city: str) -> Dict:
                 AVG(final_score) as avg_score,
                 MAX(final_score) as top_score
             FROM prospects
-            WHERE city = $1
+            WHERE city = $1 AND quality_status = 'active'
         """, normalized_city)
     
     if not stats or stats['total_prospects'] == 0:
@@ -719,6 +734,7 @@ async def _fetch_searched_cities() -> List[Dict]:
                 SUM(CASE WHEN status = 'contacted' THEN 1 ELSE 0 END) as contacted_count,
                 SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as converted_count
             FROM prospects
+            WHERE quality_status = 'active'
             GROUP BY city
             ORDER BY total_prospects DESC
         """)
@@ -770,6 +786,35 @@ async def update_prospect_contact(prospect_id: str, contact_data: Dict):
         contact_data.get("contact_phone"),
         contact_data.get("contact_linkedin"),
         prospect_id)
+
+async def save_lead_rejections(city: str, rows: List[Dict[str, Any]]) -> None:
+    """Record why brands were rejected. Must never stop a search from finishing."""
+    if not rows:
+        return
+    normalized_city = normalize_city(city)
+    try:
+        pool = await PostgresManager.get_pool()
+        async with pool.acquire() as conn:
+            await conn.executemany(
+                """
+                INSERT INTO lead_rejections (city, domain, name, stage, code, reason)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                """,
+                [
+                    (
+                        normalized_city,
+                        extract_domain(r.get("url") or ""),
+                        r.get("name"),
+                        r["stage"],
+                        r["code"],
+                        (r.get("reason") or "")[:500],
+                    )
+                    for r in rows
+                ],
+            )
+    except Exception as e:
+        print(f"[DATABASE] Could not save {len(rows)} lead rejection(s): {e}")
+
 
 async def update_prospect_linkedin_contacts(prospect_id: str, contacts: List[Dict]) -> bool:
     """

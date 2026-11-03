@@ -1,9 +1,13 @@
 """
 Utility functions for LangGraph nodes.
 """
-from typing import Optional
+import asyncio
+import json
+import logging
+from typing import Any, Optional
 import re
 from urllib.parse import urlparse
+from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_openai import AzureChatOpenAI
 from config import Config
 from services.currency import get_eur_usd_rate, eur_to_usd as _eur_to_usd
@@ -12,6 +16,13 @@ from services.llm_tasks import task_uses_fast_model
 
 # Without this, one stalled Azure call blocks the whole pipeline forever.
 LLM_REQUEST_TIMEOUT_SEC = 180
+LLM_MAX_RETRIES = 3
+JSON_ATTEMPTS = 2
+
+logger = logging.getLogger("node.utils")
+
+# Shared by every model, so parallel steps can't overrun Azure's limits together.
+_rate_limiter = InMemoryRateLimiter(requests_per_second=3, check_every_n_seconds=0.1, max_bucket_size=6)
 
 
 def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
@@ -35,6 +46,8 @@ def get_llm(fast: bool = False, temperature: float = 0.3) -> AzureChatOpenAI:
         temperature=safe_temperature,
         max_tokens=12000,
         timeout=LLM_REQUEST_TIMEOUT_SEC,
+        max_retries=LLM_MAX_RETRIES,
+        rate_limiter=_rate_limiter,
     )
 
 
@@ -43,6 +56,20 @@ def get_llm_for_task(task: str, temperature: float = 0.3) -> AzureChatOpenAI:
     Pipeline LLM picker. See services/llm_tasks.py for task keys and env overrides.
     """
     return get_llm(fast=task_uses_fast_model(task), temperature=temperature)
+
+
+async def ainvoke_json(llm: Any, prompt: str) -> Any:
+    """Call the LLM and parse its JSON, trying again if the answer isn't valid JSON."""
+    for attempt in range(1, JSON_ATTEMPTS + 1):
+        response = await llm.ainvoke(prompt)
+        raw = response.content.replace("```json", "").replace("```", "").strip()
+        try:
+            return json.loads(raw)
+        except ValueError as e:
+            if attempt == JSON_ATTEMPTS:
+                raise
+            logger.warning("LLM returned invalid JSON, retrying: %s", e)
+            await asyncio.sleep(1)
 
 
 async def get_exchange_rate() -> float:
