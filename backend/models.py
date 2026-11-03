@@ -137,6 +137,14 @@ class BrandLead(BaseModel):
     linkedin_contacts: List[Dict[str, Any]] = Field(default_factory=list, alias="linkedinContacts")
     linkedin_contacts_checked_at: Optional[datetime] = Field(None, alias="linkedinContactsCheckedAt")
 
+    # Quality evidence
+    price_status: Optional[str] = None
+    price_source_url: Optional[str] = None
+    price_evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    fit_reason: Optional[str] = None
+    closest_client: Optional[str] = None
+    core_category: Optional[str] = None
+
     # DB compat fields
     material_composition: Optional[List[str]] = Field(default_factory=list, alias="materialComposition")
 
@@ -156,7 +164,7 @@ class BrandLead(BaseModel):
             return None
         return v
 
-    @field_validator("linkedin_contacts", mode="before")
+    @field_validator("linkedin_contacts", "price_evidence", mode="before")
     @classmethod
     def coerce_linkedin_contacts(cls, v):
         """asyncpg returns JSONB as a string; rows may also hold NULL."""

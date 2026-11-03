@@ -134,7 +134,7 @@ CANDIDATES:
 {blocks}"""
 
 
-def _simplify(text: str) -> str:
+def simplify_name(text: str) -> str:
     """Compare names loosely: no accents, case, punctuation, or '&' vs 'and'."""
     decomposed = unicodedata.normalize("NFKD", text or "")
     ascii_text = "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
@@ -143,8 +143,8 @@ def _simplify(text: str) -> str:
 
 
 def _is_brand_named(person_name: str, brand_name: str) -> bool:
-    person = _simplify(person_name)
-    return bool(person) and person == _simplify(brand_name)
+    person = simplify_name(person_name)
+    return bool(person) and person == simplify_name(brand_name)
 
 
 async def _verify_candidates(brand: Dict[str, Any], candidates: List[Dict[str, str]]) -> List[Dict[str, Any]]:

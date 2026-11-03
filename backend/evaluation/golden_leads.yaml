@@ -1,0 +1,45 @@
+# Labelled brands for measuring lead quality. `good` means Lança would want this lead.
+# Labelled by the engineer from public information: to be confirmed by the commercial
+# team, and extended with client examples. Real clients are checked separately, from
+# data/lanca_clients.py.
+good:
+  - {name: "Cad & The Dandy", url: "https://cadandthedandy.co.uk/", country: "UK"}
+  - {name: "Neal & Palmer", url: "https://nealandpalmer.com/", country: "UK"}
+  - {name: "William Hunt", url: "https://williamhunt.co.uk/", country: "UK"}
+  - {name: "Hemingway Tailors", url: "https://www.hemingwaytailors.co.uk/", country: "UK"}
+  - {name: "Stewart Christie & Co", url: "https://stewartchristie.com/", country: "UK"}
+  - {name: "Louis Copeland & Sons", url: "https://www.louiscopeland.com/", country: "Ireland"}
+  - {name: "Hunter Treacy Tailors", url: "https://www.huntertreacytailors.ie/", country: "Ireland"}
+  - {name: "Sartoria Vienna", url: "https://sartoriavienna.com/en", country: "Austria"}
+  - {name: "PAUL Vienna", url: "https://www.paul-vienna.com/", country: "Austria"}
+  - {name: "rotknopf", url: "https://www.rotknopf.at/", country: "Austria"}
+  - {name: "Rego Bespoke", url: "https://www.rego.ca/", country: "Canada"}
+  - {name: "Adrian Park Custom", url: "https://adrianparkcustom.com/", country: "USA"}
+  - {name: "Pearce Bespoke", url: "https://pearcebespokechicago.com/", country: "USA"}
+  - {name: "Konig Genève", url: "https://www.konig-geneve.com/fr", country: "Switzerland"}
+  - {name: "Sastrería Foraster", url: "https://sastreriaforaster.es/", country: "Spain"}
+  - {name: "Yusty 1914", url: "https://yusty1914.com/", country: "Spain"}
+  - {name: "Tweed Gentlemen's Clothier", url: "https://tweed.se/", country: "Sweden"}
+  - {name: "Götrich & Co", url: "https://gotrich.com/en", country: "Sweden"}
+  - {name: "Pelikamo", url: "https://www.pelikamo.com/", country: "Switzerland"}
+  - {name: "Florentino Delure", url: "https://florentinodelure.com/", country: "Spain"}
+bad:
+  - {name: "IKKS", url: "https://www.ikks.com/es/hombre/ropa/americanas/", country: "France", why: "chain, mostly casual"}
+  - {name: "The Boston Brand", url: "https://www.thebostonbrand.com/", country: "Spain", why: "casual, under €200"}
+  - {name: "Navendi", url: "https://navendi.com/", country: "Spain", why: "uniforms"}
+  - {name: "Vittorio Uniformes", url: "https://www.vittorio.es/es/", country: "Spain", why: "uniforms"}
+  - {name: "The Tie Bar", url: "https://www.thetiebar.com/", country: "USA", why: "ties and accessories, low price"}
+  - {name: "Red Ruairidh Kilts", url: "https://redruairidhkilts.co.uk/", country: "UK", why: "kilts"}
+  - {name: "Slater Menswear", url: "https://www.slaters.co.uk/", country: "UK", why: "budget chain"}
+  - {name: "Boggi Milano", url: "https://www.boggi.com/", country: "Italy", why: "large international chain"}
+  - {name: "Bongénie", url: "https://magasins.bongenie.ch/24-bongenie-geneve", country: "Switzerland", why: "department store"}
+  - {name: "Suitsupply", url: "https://suitsupply.com/en-se/stores/stockholm", country: "Netherlands", why: "large international chain"}
+  - {name: "Hackett London", url: "https://www.hackett.com/gb/men/suits-waistcoats/", country: "UK", why: "large international chain"}
+  - {name: "Hockerty", url: "https://www.hockerty.ch/", country: "Switzerland", why: "online only"}
+  - {name: "Garzón Moda Hombre", url: "https://localitybiz.es/24175447/", country: "Spain", why: "directory page"}
+  - {name: "El mundo elegante", url: "https://www.salir.com/el-mundo-elegante-bilbao-neg-1", country: "Spain", why: "directory page"}
+  - {name: "Louis Copeland and Sons", url: "https://www.irishtimes.com/advertising-feature/2024/", country: "Ireland", why: "newspaper article"}
+  - {name: "Stewart Christie", url: "https://www.drapersonline.com/companies/independents", country: "UK", why: "trade press article"}
+  - {name: "Wedding Bells", url: "https://www.weddingbells.se/festkostym-och-smoking/", country: "Sweden", why: "wedding wear"}
+  - {name: "Dick's Edinburgh", url: "https://dicks-edinburgh.co.uk/", country: "UK", why: "casual designer retail"}
+  - {name: "Pascual Bilbao", url: "https://pascualbilbao.es/", country: "Spain", why: "low price"}

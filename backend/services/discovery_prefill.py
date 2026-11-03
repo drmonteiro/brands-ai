@@ -7,8 +7,6 @@ No LLM — regex/heuristics only. Wrong > empty: only set fields with explicit e
 import re
 from typing import Any, Dict, List, Optional
 
-from services.currency import CHF_TO_EUR, GBP_TO_EUR, USD_TO_EUR
-
 DISCOVERY_MAX_CHARS = 10_000
 
 _EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
@@ -36,25 +34,6 @@ _STORE_COUNT_RE = re.compile(
     r"\b(\d{1,3})\s+(?:stores?|boutiques?|locations?|shops?)\b",
     re.I,
 )
-
-_PRICE_PATTERNS = [
-    (re.compile(r"€\s*([\d.,]+)"), "EUR", 1.0),
-    (re.compile(r"£\s*([\d.,]+)"), "GBP", GBP_TO_EUR),
-    (re.compile(r"\$\s*([\d.,]+)"), "USD", USD_TO_EUR),
-    (re.compile(r"CHF\s*([\d.,]+)", re.I), "CHF", CHF_TO_EUR),
-    (re.compile(r"([\d.,]+)\s*€"), "EUR", 1.0),
-    (re.compile(r"([\d.,]+)\s*£"), "GBP", GBP_TO_EUR),
-]
-
-
-def _parse_amount(raw: str) -> Optional[float]:
-    s = raw.strip().replace(",", "")
-    try:
-        v = float(s)
-        return v if v > 0 else None
-    except ValueError:
-        return None
-
 
 def normalize_linkedin_url(url: str) -> str:
     u = url.strip().rstrip("/")
@@ -132,37 +111,6 @@ def extract_store_hints_from_text(text: str) -> Dict[str, Any]:
     return out
 
 
-def extract_price_hints_from_text(text: str) -> Dict[str, Any]:
-    """Find suit-related EUR amounts when explicitly priced in discovery text."""
-    out: Dict[str, Any] = {
-        "avg_suit_price_eur": None,
-        "price_range_min_eur": None,
-        "price_range_max_eur": None,
-    }
-    if not text:
-        return out
-
-    window = text[:DISCOVERY_MAX_CHARS].lower()
-    if "suit" not in window and "fato" not in window and "jacket" not in window:
-        return out
-
-    amounts: List[float] = []
-    for pattern, _cur, mult in _PRICE_PATTERNS:
-        for m in pattern.finditer(text[:DISCOVERY_MAX_CHARS]):
-            amt = _parse_amount(m.group(1))
-            if amt and 200 <= amt * mult <= 5000:
-                amounts.append(round(amt * mult, 2))
-
-    if not amounts:
-        return out
-
-    amounts = sorted(set(amounts))
-    out["price_range_min_eur"] = amounts[0]
-    out["price_range_max_eur"] = amounts[-1]
-    out["avg_suit_price_eur"] = round(sum(amounts) / len(amounts), 2)
-    return out
-
-
 def prefill_from_discovery(brand: Dict[str, Any]) -> Dict[str, Any]:
     """
     Parse discovery content (≤10k chars). Returns fields to merge into brand;
@@ -178,9 +126,6 @@ def prefill_from_discovery(brand: Dict[str, Any]) -> Dict[str, Any]:
     linkedin = extract_linkedin_from_text(text)
     if linkedin:
         result["contact_linkedin"] = linkedin
-
-    price = extract_price_hints_from_text(text)
-    result.update({k: v for k, v in price.items() if v is not None})
 
     hq_city = extract_hq_city_from_text(text)
     if hq_city:

@@ -61,10 +61,15 @@ async def _mock_extract_structured_batch(brands, exa_contents, target_city, targ
             "origin_country": "United Kingdom",
             "headquarters_city": None,
             "headquarters_confidence": "unknown",
-            "avg_suit_price_eur": 900,
-            "price_range_min_eur": 700,
-            "price_range_max_eur": 1200,
-            "price_note": "Suits from £700",
+            "suit_prices": [{
+                "amount": 995,
+                "currency": "EUR",
+                "product": "suit",
+                "quote": "Suits from €995",
+                "source_url": b["url"],
+            }],
+            "core_category": "tailoring_core",
+            "suit_evidence_quote": "Bespoke and sartorial suits, jackets, trousers",
             "made_to_measure": True,
             "wool_percentage": "100%",
             "brand_style": "Heritage/Premium",
@@ -114,7 +119,7 @@ async def _mock_find_similar_batch(texts, n_results=3):
 
 async def _mock_llm_fit(brands, target_city):
     return [
-        {"url": b.get("website_url", ""), "fit_score": 8, "fit_reason": "mock fit"}
+        {"url": b.get("website_url", ""), "fit_score": 8, "client_level": "same", "fit_reason": "mock fit"}
         for b in brands
     ]
 
@@ -210,3 +215,6 @@ async def test_simplified_pipeline_e2e(monkeypatch):
         assert row["scores"]["final_score"] > 0
         assert row["prospect"].get("city_presence_type") in ("hq", "store", "showroom", "unknown")
         assert row["prospect"].get("headquarters_city")
+        assert row["prospect"].get("price_status") == "confirmed"
+        assert row["prospect"].get("price_source_url")
+        assert row["prospect"].get("fit_reason") == "mock fit"

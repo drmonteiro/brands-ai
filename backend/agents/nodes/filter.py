@@ -4,12 +4,13 @@ Takes raw Exa search results and uses a fast LLM (GPT-5-mini) in batch
 to classify each brand: is it a men's suit brand/retailer? Remove everything else.
 """
 
-import json
 import logging
 from typing import List, Dict, Any, Union
 
 from models import ProspectorState
-from .utils import get_llm
+from services.database import save_lead_rejections
+from .llm_schemas import FilterVerdict, validate_items
+from .utils import ainvoke_json, get_llm
 from .pipeline_timing import step_begin, step_end
 
 logger = logging.getLogger("node.filter")
@@ -34,48 +35,52 @@ async def _filter_batch(candidates: List[Dict], target_city: str) -> List[Dict]:
     )
 
     prompt = f"""You are a strict filter for a Portuguese suit manufacturer (Confeções Lança).
-We want businesses that sell MEN'S SUITS or tailored menswear (fatos de homem / alfaiataria masculina).
+We want businesses whose core product is MEN'S SUITS or tailored menswear (fatos de homem / alfaiataria masculina).
 
 CITY: {target_city}
 
-KEEP if the business sells (even with limited snippet evidence):
-- Men's suits (complete, two-piece, three-piece) OR strong tailoring/sartorial focus
-- Men's blazers/sport coats and tailored trousers (suit separates)
-- Independent boutique, tailor shop with store, or small brand (1-20 stores) — bespoke/MTM is OK
-- Formal/premium menswear where suits or tailoring are a core category
+KEEP only if the content shows the business sells:
+- Men's suits (complete, two-piece, three-piece) OR has a strong tailoring/sartorial focus
+- Independent boutique, tailor shop with a store, or small brand (1-20 stores). Bespoke and made-to-measure are welcome
+- Premium menswear where suits or tailoring are clearly a main line
 
 REMOVE if the business is:
-- T-shirt, casual wear, streetwear, sportswear brand
-- Women's-only fashion
-- Shirt-only brand (no suits)
-- Shoe/accessory-only brand
-- Blog, magazine, review site, marketplace
-- Generic department store or fast fashion chain (H&M, Zara, etc.)
+- T-shirt, jeans, casual wear, streetwear or sportswear brand, even if it lists a few blazers
+- Women's-only fashion, or suit hire/rental only, or uniforms and workwear
+- Shirt-only, shoe-only or accessory-only brand
+- Blog, magazine, review site, directory or marketplace
+- Department store or fast fashion chain (H&M, Zara, etc.)
 - Restaurant, hotel, or non-clothing business
-- Brand with zero evidence of selling suits
+- Anything with no evidence of selling suits
 
 CANDIDATES ({len(candidates)} total):
 {candidates_block}
 
-TASK: For each candidate, decide KEEP or REMOVE.
-Return ONLY a JSON array with one object per candidate, in SAME order:
-[{{"url": "...", "keep": true/false, "brand_name": "extracted brand name", "reason": "short reason"}}]
+TASK: Decide KEEP or REMOVE for each candidate.
+Return ONLY a JSON array with one object per candidate, where "i" is the candidate number:
+[{{"i": 1, "keep": true/false, "brand_name": "extracted brand name", "reason": "short reason"}}]
 
 Return ONLY the JSON array, no other text."""
 
     try:
-        response = await llm.ainvoke(prompt)
-        raw = response.content.replace("```json", "").replace("```", "").strip()
-        results = json.loads(raw)
-        if not isinstance(results, list):
-            results = [results]
-        return results
+        verdicts = validate_items(FilterVerdict, await ainvoke_json(llm, prompt))
     except Exception as e:
-        logger.warning("Filter batch LLM error: %s — keeping all candidates as fallback", e)
-        return [
-            {"url": c["url"], "keep": True, "brand_name": c.get("title", ""), "reason": "filter error fallback"}
-            for c in candidates
-        ]
+        logger.warning("Filter batch LLM error: %s — keeping candidates for the quality gate", e)
+        verdicts = []
+
+    # Matched by number, so one skipped answer can't shift verdicts onto the wrong brand.
+    # The gate checks unassessed brands later, so keeping them can't let a bad lead through.
+    by_number = {v.i: v for v in verdicts}
+    results = []
+    for number, candidate in enumerate(candidates, start=1):
+        verdict = by_number.get(number)
+        results.append({
+            "url": candidate["url"],
+            "keep": verdict.keep if verdict else True,
+            "brand_name": (verdict.brand_name if verdict else "") or candidate.get("title", ""),
+            "reason": verdict.reason if verdict else "not assessed",
+        })
+    return results
 
 
 async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str, Any]:
@@ -111,26 +116,33 @@ async def filter_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
         all_filter_results.extend(batch_results)
 
     # Build filtered list: merge LLM classification with original Exa content
+    verdict_by_url = {r["url"]: r for r in all_filter_results}
     filtered_brands = []
-    kept, removed = 0, 0
+    rejections = []
 
-    for i, classification in enumerate(all_filter_results):
-        if i >= len(raw_results):
-            break
-
-        if classification.get("keep", False):
-            kept += 1
+    for candidate in raw_results:
+        verdict = verdict_by_url.get(candidate["url"], {})
+        if verdict.get("keep", True):
             filtered_brands.append({
-                "url": raw_results[i]["url"],
-                "title": raw_results[i].get("title", ""),
-                "text": raw_results[i].get("text", ""),
-                "highlights": raw_results[i].get("highlights", ""),
-                "brand_name": classification.get("brand_name", raw_results[i].get("title", "")),
-                "filter_reason": classification.get("reason", ""),
+                "url": candidate["url"],
+                "title": candidate.get("title", ""),
+                "text": candidate.get("text", ""),
+                "highlights": candidate.get("highlights", ""),
+                "brand_name": verdict.get("brand_name") or candidate.get("title", ""),
+                "filter_reason": verdict.get("reason", ""),
             })
         else:
-            removed += 1
-            logger.info("  REMOVED: %s — %s", raw_results[i]["url"], classification.get("reason", ""))
+            rejections.append({
+                "url": candidate["url"],
+                "name": verdict.get("brand_name") or candidate.get("title", ""),
+                "stage": "filter",
+                "code": "filter_removed",
+                "reason": verdict.get("reason", ""),
+            })
+            logger.info("  REMOVED: %s — %s", candidate["url"], verdict.get("reason", ""))
+
+    await save_lead_rejections(target_city, rejections)
+    kept, removed = len(filtered_brands), len(rejections)
 
     progress.append(f"✅ {kept} marcas relevantes mantidas ({removed} fora do perfil)")
     logger.info("Filter result: %d kept, %d removed out of %d total",

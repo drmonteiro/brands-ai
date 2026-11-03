@@ -1,4 +1,4 @@
-"""Runtime scoring weights (N4) — not the offline rubric in scoring.py."""
+"""Runtime scoring weights (N4) — not the offline evaluator."""
 
 from services.runtime_scoring import (
     WEIGHT_LLM_FIT,
@@ -31,3 +31,9 @@ def test_city_presence_breakdown_only():
     assert calculate_city_presence_score("hq") == 100.0
     assert calculate_city_presence_score("store") == 67.0
     assert calculate_price_alignment_score(0) == 50.0
+
+
+def test_price_band_comes_from_the_validated_rubric():
+    assert calculate_price_alignment_score(2000) == 100.0
+    assert calculate_price_alignment_score(2001) < 100.0
+    assert calculate_price_alignment_score(499) < 100.0

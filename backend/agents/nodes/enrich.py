@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Union
 from exa_py import Exa
 
 from models import ProspectorState
-from services.currency import extraction_fx_rules_text
 from services.brand_facts import (
     apply_brand_facts_to_brand,
     get_brand_facts_batch,
@@ -29,6 +28,7 @@ from services.brand_facts import (
 from services.database import extract_domain
 from services.discovery_prefill import apply_prefill, prefill_from_discovery
 from services.google_places import enrich_with_places
+from services.price_evidence import confirm_suit_prices, normalize_text, quote_in_text
 from services.location_enrichment import (
     EXA_MAX_CONCURRENT,
     CityContext,
@@ -49,6 +49,7 @@ from .pipeline_timing import step_begin, step_end
 logger = logging.getLogger("node.enrich")
 
 ENRICH_BATCH_SIZE = 6
+PRICE_CONTENT_CHARS = 6000
 DISCOVERY_SLICE = 10_000
 # Max concurrent unified-LLM batches (N3c); 0 = unlimited (all batches at once)
 ENRICH_LLM_BATCH_CONCURRENT = int(os.environ.get("ENRICH_LLM_BATCH_CONCURRENT", "0"))
@@ -59,7 +60,7 @@ ENRICH_LLM_BATCH_CONCURRENT = int(os.environ.get("ENRICH_LLM_BATCH_CONCURRENT", 
 # ============================================================================
 
 def _needs_exa_price(brand: Dict) -> bool:
-    return brand.get("avg_suit_price_eur") is None and brand.get("price_range_min_eur") is None
+    return brand.get("price_status") != "confirmed"
 
 
 def _needs_exa_about(brand: Dict) -> bool:
@@ -162,7 +163,6 @@ async def _extract_structured_batch(
     One LLM call per batch: discovery + pricing + about + store-locator combined.
     """
     llm = get_llm_for_task("structured_extract")
-    fx_rules = extraction_fx_rules_text()
 
     blocks = []
     for i, b in enumerate(brands):
@@ -175,8 +175,6 @@ async def _extract_structured_batch(
             prefill_note += f"Prefill LinkedIn (regex): {b['contact_linkedin']}\n"
         if b.get("headquarters_city") and b.get("headquarters_confidence") == "verified":
             prefill_note += f"Prefill HQ (discovery): {b['headquarters_city']} (verified)\n"
-        if b.get("avg_suit_price_eur"):
-            prefill_note += f"Prefill price hint: €{b['avg_suit_price_eur']}\n"
 
         contact_content = (exa.get("contact") or "")[:3000]
         blocks.append(
@@ -184,8 +182,8 @@ async def _extract_structured_batch(
             f"URL: {b.get('url') or b.get('website_url', '')}\n"
             f"BRAND NAME (from filter): {b.get('brand_name') or b.get('name', '')}\n"
             f"PREFILL (from discovery, trust if verified):\n{prefill_note or '(none)'}\n"
-            f"DISCOVERY CONTENT:\n{discovery}\n"
-            f"PRICING PAGE CONTENT:\n{(exa.get('price') or '')[:3000]}\n"
+            f"DISCOVERY CONTENT (SOURCE: {b.get('url') or b.get('website_url', '')}):\n{discovery}\n"
+            f"PRICING PAGE CONTENT:\n{(exa.get('price') or '')[:PRICE_CONTENT_CHARS]}\n"
             f"ABOUT/HQ PAGE CONTENT:\n{(exa.get('about') or '')[:3000]}\n"
             f"STORE LOCATOR CONTENT:\n{(exa.get('stores') or '')[:3000]}\n"
             f"CONTACT PAGE CONTENT:\n{contact_content}"
@@ -203,16 +201,18 @@ BRANDS ({len(brands)} total):
 {chr(10).join(blocks)}
 
 TASK: Extract structured data for each brand.
-Return ONLY a JSON array with one object per brand, in SAME order:
+Return ONLY a JSON array with one object per brand, where "i" is the BRAND number:
 [{{
+  "i": 1,
   "name": "Brand Name",
   "website_url": "https://...",
   "origin_country": "Country where brand is headquartered",
   "headquarters_city": "City where brand HQ is located (explicit evidence only) or null",
   "headquarters_confidence": "verified" or "unknown",
-  "avg_suit_price_eur": 800,
-  "price_range_min_eur": 500,
-  "price_range_max_eur": 1200,
+  "suit_prices": [{{"amount": "1,295", "currency": "GBP", "product": "two-piece wool suit", "quote": "exact text copied from the content", "source_url": "the SOURCE of that content"}}],
+  "is_official_site": true/false,
+  "core_category": "tailoring_core | menswear_suits_prominent | menswear_suits_minor | casual_menswear | womenswear | accessories | hire_only | uniforms | other",
+  "suit_evidence_quote": "exact text copied from the content showing what they sell, or null",
   "made_to_measure": true/false/null,
   "wool_percentage": "100%" or "mixed" or null,
   "brand_style": "Heritage/Premium/Contemporary/Luxury/Traditional",
@@ -232,11 +232,25 @@ Return ONLY a JSON array with one object per brand, in SAME order:
   "bespoke_only": true/false/null
 }}]
 
-PRICING RULES:
-- PRIORITIZE prices from PRICING PAGE CONTENT
-- {fx_rules}
-- If only one price found, use it as both min and max; if none, null
-- avg_suit_price_eur = midpoint of min and max when both exist
+SUIT PRICE RULES:
+- suit_prices lists only prices of COMPLETE MEN'S SUITS (jacket and trousers), including made-to-measure and bespoke suits, with one entry per price found
+- NEVER include jackets, blazers, trousers, shirts, shoes, accessories, fabric, hire or alterations
+- amount and currency are exactly as written; use the ISO currency code (EUR, GBP, USD, CAD, CHF, SEK...). Do not convert. A "$" in Canada is CAD
+- quote is copied word for word from the content and must contain the amount
+- If a sale price and a regular price are shown, use the regular price. "From" prices are fine
+- If no suit price is written, return an empty list. NEVER estimate
+
+OFFICIAL SITE RULE:
+- is_official_site is true only if URL is the brand's own website. A directory, listing, marketplace, article, review or shopping-centre page about the brand is false
+
+CATEGORY RULES:
+- tailoring_core: tailors, made-to-measure houses and brands where suits or tailoring define the business
+- menswear_suits_prominent: broader menswear where suits are clearly a main line
+- menswear_suits_minor: mostly other clothing, with suits only a small part of the range
+- casual_menswear: T-shirts, jeans, streetwear, sportswear, casual clothing
+- hire_only: suit hire or rental only. uniforms: workwear or uniforms
+- suit_evidence_quote must be copied word for word
+- is_chain is true only for international or mass-market chains well above 30 stores, department stores and marketplaces. A menswear brand with up to about 30 stores and its own label is not a chain
 
 HEADQUARTERS RULES:
 - ONLY extract HQ city if EXPLICITLY stated (based in, headquartered, registered office, footer HQ)
@@ -276,39 +290,68 @@ Return ONLY the JSON array."""
                 r["headquarters_confidence"] = "unknown"
             elif r.get("headquarters_confidence") not in ("verified", "llm_knowledge"):
                 r["headquarters_confidence"] = "verified"
-        return results
+        return _align_extraction(results, brands)
     except Exception as e:
         logger.warning("Unified enrich LLM error: %s — returning minimal data", e)
-        return [
-            {
-                "name": b.get("brand_name", b.get("title", "")),
-                "website_url": b.get("url", ""),
-                "origin_country": None,
-                "headquarters_city": b.get("headquarters_city"),
-                "headquarters_confidence": b.get("headquarters_confidence", "unknown"),
-                "avg_suit_price_eur": b.get("avg_suit_price_eur"),
-                "price_range_min_eur": b.get("price_range_min_eur"),
-                "price_range_max_eur": b.get("price_range_max_eur"),
-                "made_to_measure": None,
-                "wool_percentage": None,
-                "brand_style": None,
-                "business_model": None,
-                "company_overview": None,
-                "contact_email": b.get("contact_email"),
-                "contact_linkedin": b.get("contact_linkedin"),
-                "contact_name": b.get("contact_name"),
-                "contact_role": b.get("contact_role"),
-                "contact_phone": b.get("contact_phone"),
-                "site_store_addresses": b.get("_site_store_addresses", []),
-                "site_store_count": b.get("_site_store_count"),
-                "site_store_confidence": b.get("_site_store_confidence", "unknown"),
-                "clothing_types": [],
-                "target_gender": None,
-                "is_chain": None,
-                "bespoke_only": None,
-            }
-            for b in brands
-        ]
+        return [_failed_extraction(b) for b in brands]
+
+
+def _failed_extraction(brand: Dict) -> Dict:
+    """A brand with no usable answer: keeps what's known, and the gate rejects it with a reason."""
+    return {
+        "name": brand.get("brand_name", brand.get("title", "")),
+        "website_url": brand.get("url", ""),
+        "origin_country": None,
+        "headquarters_city": brand.get("headquarters_city"),
+        "headquarters_confidence": brand.get("headquarters_confidence", "unknown"),
+        "_extraction_failed": True,
+        "made_to_measure": None,
+        "wool_percentage": None,
+        "brand_style": None,
+        "business_model": None,
+        "company_overview": None,
+        "contact_email": brand.get("contact_email"),
+        "contact_linkedin": brand.get("contact_linkedin"),
+        "contact_name": brand.get("contact_name"),
+        "contact_role": brand.get("contact_role"),
+        "contact_phone": brand.get("contact_phone"),
+        "site_store_addresses": brand.get("_site_store_addresses", []),
+        "site_store_count": brand.get("_site_store_count"),
+        "site_store_confidence": brand.get("_site_store_confidence", "unknown"),
+        "clothing_types": [],
+        "target_gender": None,
+        "is_chain": None,
+        "bespoke_only": None,
+    }
+
+
+def _align_extraction(results: List[Dict], brands: List[Dict]) -> List[Dict]:
+    """
+    One row per brand, matched by number. Matching by position would give every later
+    brand in the batch the wrong data whenever the LLM skipped one.
+    """
+    by_number = {r.get("i"): r for r in results if isinstance(r, dict)}
+    aligned = []
+    for number, brand in enumerate(brands, start=1):
+        row = by_number.get(number)
+        if row is None:
+            logger.warning("Extraction skipped %s", brand.get("brand_name") or brand.get("url"))
+        aligned.append(row if row is not None else _failed_extraction(brand))
+    return aligned
+
+
+def _apply_evidence(brand: Dict, extracted: Dict, exa_content: Dict[str, str]) -> None:
+    """The LLM only reports what it read: check its prices and category quote against the text."""
+    url = brand.get("website_url") or brand.get("url", "")
+    source_text = "\n".join(
+        [brand.get("text") or brand.get("highlights") or ""]
+        + [exa_content.get(k) or "" for k in ("price", "about", "stores", "contact")]
+    )
+    brand.update(confirm_suit_prices(extracted.get("suit_prices"), url, source_text))
+    # A confirmed suit price is itself proof that the brand sells suits.
+    brand["suit_evidence_verified"] = brand["price_status"] == "confirmed" or quote_in_text(
+        str(extracted.get("suit_evidence_quote") or ""), normalize_text(source_text)
+    )
 
 
 def _merge_extracted_into_brand(brand: Dict, extracted: Dict, source_row: Dict) -> Dict:
@@ -319,9 +362,9 @@ def _merge_extracted_into_brand(brand: Dict, extracted: Dict, source_row: Dict) 
     out["name"] = extracted.get("name") or source_row.get("brand_name") or source_row.get("title", "")
 
     for key in (
-        "origin_country", "avg_suit_price_eur", "price_range_min_eur", "price_range_max_eur",
-        "made_to_measure", "wool_percentage", "brand_style", "business_model",
+        "origin_country", "made_to_measure", "wool_percentage", "brand_style", "business_model",
         "company_overview", "clothing_types", "target_gender", "is_chain", "bespoke_only",
+        "core_category", "suit_evidence_quote", "is_official_site", "_extraction_failed",
     ):
         val = extracted.get(key)
         if val is not None:
@@ -533,7 +576,9 @@ async def _run_full_enrich_pipeline(
         merged_rows = []
         for i, row in enumerate(extracted):
             if i < len(batch):
-                merged_rows.append(_merge_extracted_into_brand(batch[i], row, batch[i]))
+                merged = _merge_extracted_into_brand(batch[i], row, batch[i])
+                _apply_evidence(merged, row, batch_exa[i] if i < len(batch_exa) else {})
+                merged_rows.append(merged)
         return batch_start, batch_num, merged_rows
 
     batch_starts = list(range(0, len(working), ENRICH_BATCH_SIZE))
@@ -609,7 +654,8 @@ async def enrich_node(state: Union[ProspectorState, Dict[str, Any]]) -> Dict[str
     for brand in working:
         domain = extract_domain(brand.get("website_url") or brand.get("url", ""))
         facts = facts_by_domain.get(domain) if domain else None
-        if facts and is_brand_facts_fresh(facts.get("updated_at"), ttl_days):
+        # Facts saved before price and category evidence existed must be re-enriched.
+        if facts and facts.get("price_status") and is_brand_facts_fresh(facts.get("updated_at"), ttl_days):
             apply_brand_facts_to_brand(brand, facts)
             cache_hit.append(brand)
         else:

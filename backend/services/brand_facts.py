@@ -61,6 +61,13 @@ def _row_to_facts(row) -> Dict[str, Any]:
         except Exception:
             contacts = []
     data["linkedin_contacts"] = contacts or []
+    evidence = data.get("price_evidence")
+    if isinstance(evidence, str):
+        try:
+            evidence = json.loads(evidence)
+        except Exception:
+            evidence = []
+    data["price_evidence"] = evidence or []
     return data
 
 
@@ -107,6 +114,15 @@ def apply_brand_facts_to_brand(brand: Dict[str, Any], facts: Dict[str, Any]) -> 
         "price_range_min_eur",
         "price_range_max_eur",
         "price_note",
+        "price_status",
+        "price_source_url",
+        "price_evidence",
+        "core_category",
+        "suit_evidence_quote",
+        "suit_evidence_verified",
+        "target_gender",
+        "is_chain",
+        "is_official_site",
         "wool_percentage",
         "made_to_measure",
         "brand_style",
@@ -160,6 +176,15 @@ def brand_dict_to_facts_row(brand: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "price_range_min_eur": brand.get("price_range_min_eur"),
         "price_range_max_eur": brand.get("price_range_max_eur"),
         "price_note": brand.get("price_note"),
+        "price_status": brand.get("price_status"),
+        "price_source_url": brand.get("price_source_url"),
+        "price_evidence": brand.get("price_evidence") or [],
+        "core_category": brand.get("core_category"),
+        "suit_evidence_quote": brand.get("suit_evidence_quote"),
+        "suit_evidence_verified": brand.get("suit_evidence_verified"),
+        "target_gender": brand.get("target_gender"),
+        "is_chain": brand.get("is_chain"),
+        "is_official_site": brand.get("is_official_site"),
         "store_count": brand.get("store_count"),
         "store_count_confidence": brand.get("store_count_confidence") or "unknown",
         "store_locations": store_locs,
@@ -175,7 +200,8 @@ async def upsert_brand_facts_from_brands(brands: List[Dict[str, Any]]) -> int:
     """Persist brand-level facts after full enrichment. Returns rows upserted."""
     rows = []
     for brand in brands:
-        if brand.get("_brand_facts_cache_hit"):
+        # A failed extraction has no evidence, and caching it would hide the brand for a whole TTL.
+        if brand.get("_brand_facts_cache_hit") or brand.get("_extraction_failed"):
             continue
         row = brand_dict_to_facts_row(brand)
         if row:
@@ -197,6 +223,9 @@ async def upsert_brand_facts_from_brands(brands: List[Dict[str, Any]]) -> int:
                     wool_percentage, made_to_measure,
                     brand_style, business_model, company_overview,
                     contact_name, contact_role, contact_phone, contact_linkedin,
+                    price_status, price_source_url, price_evidence,
+                    core_category, suit_evidence_quote, suit_evidence_verified,
+                    target_gender, is_chain, is_official_site,
                     updated_at
                 ) VALUES (
                     $1, $2, $3, $4,
@@ -207,6 +236,9 @@ async def upsert_brand_facts_from_brands(brands: List[Dict[str, Any]]) -> int:
                     $15, $16,
                     $17, $18, $19,
                     $20, $21, $22, $23,
+                    $24, $25, $26::jsonb,
+                    $27, $28, $29,
+                    $30, $31, $32,
                     CURRENT_TIMESTAMP
                 )
                 ON CONFLICT (domain) DO UPDATE SET
@@ -232,6 +264,15 @@ async def upsert_brand_facts_from_brands(brands: List[Dict[str, Any]]) -> int:
                     contact_role = COALESCE(EXCLUDED.contact_role, brand_facts.contact_role),
                     contact_phone = COALESCE(EXCLUDED.contact_phone, brand_facts.contact_phone),
                     contact_linkedin = COALESCE(EXCLUDED.contact_linkedin, brand_facts.contact_linkedin),
+                    price_status = EXCLUDED.price_status,
+                    price_source_url = EXCLUDED.price_source_url,
+                    price_evidence = EXCLUDED.price_evidence,
+                    core_category = EXCLUDED.core_category,
+                    suit_evidence_quote = EXCLUDED.suit_evidence_quote,
+                    suit_evidence_verified = EXCLUDED.suit_evidence_verified,
+                    target_gender = EXCLUDED.target_gender,
+                    is_chain = EXCLUDED.is_chain,
+                    is_official_site = EXCLUDED.is_official_site,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 row["domain"],
@@ -257,6 +298,15 @@ async def upsert_brand_facts_from_brands(brands: List[Dict[str, Any]]) -> int:
                 row["contact_role"],
                 row["contact_phone"],
                 row["contact_linkedin"],
+                row["price_status"],
+                row["price_source_url"],
+                json.dumps(row["price_evidence"]),
+                row["core_category"],
+                row["suit_evidence_quote"],
+                row["suit_evidence_verified"],
+                row["target_gender"],
+                row["is_chain"],
+                row["is_official_site"],
             )
     logger.info("[brand_facts] Upserted %d domain(s)", len(rows))
     return len(rows)
