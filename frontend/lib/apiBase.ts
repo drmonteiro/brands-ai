@@ -28,12 +28,16 @@ export function apiUrl(path: string): string {
 type BackendToken = { token: string; expiresAt: number };
 
 const TOKEN_REFRESH_MARGIN_SECONDS = 60;
+const TOKEN_TIMEOUT_MS = 10000;
 let cachedToken: BackendToken | null = null;
 let pendingToken: Promise<BackendToken | null> | null = null;
 
 async function requestToken(): Promise<BackendToken | null> {
   try {
-    const response = await fetch("/api/auth/backend-token", { cache: "no-store" });
+    const response = await fetch("/api/auth/backend-token", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+    });
     return response.ok ? await response.json() : null;
   } catch {
     return null;

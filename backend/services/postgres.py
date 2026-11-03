@@ -1,4 +1,6 @@
 import asyncio
+import functools
+import logging
 import os
 import asyncpg
 from typing import Optional
@@ -8,9 +10,41 @@ load_dotenv()
 
 import ssl
 
+logger = logging.getLogger("services.postgres")
+
+# Errors that mean the connection failed, not the query, so trying again is safe.
+_CONNECTION_ERRORS = (
+    asyncpg.PostgresConnectionError,
+    asyncpg.InterfaceError,
+    OSError,  # includes ConnectionError and TimeoutError
+)
+CONNECTION_RETRY_DELAY_SEC = 0.3
+
+
+def retry_on_connection_error(fn):
+    """Retry a read once if the connection fails, as a dropped idle connection would."""
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except _CONNECTION_ERRORS as e:
+            logger.warning("DB_CONNECTION_RETRY %s: %r", fn.__name__, e)
+            await asyncio.sleep(CONNECTION_RETRY_DELAY_SEC)
+            return await fn(*args, **kwargs)
+
+    return wrapper
+
+
 class PostgresManager:
     _pool: Optional[asyncpg.Pool] = None
     _POOL_CONNECT_TIMEOUT_SEC = 20
+    # asyncpg waits 60s by default to open a connection and to run a query, long
+    # enough to look like a frozen page. Fail fast and let the retry handle it.
+    _CONNECT_TIMEOUT_SEC = 10
+    _COMMAND_TIMEOUT_SEC = 20
+    # Replace idle connections before the database or network drops them.
+    _MAX_IDLE_SEC = 60
 
     # TCP keepalive settings to prevent Neon/Azure from dropping idle connections
     _server_settings = {
@@ -36,9 +70,10 @@ class PostgresManager:
                     asyncpg.create_pool(
                         min_size=1,
                         max_size=5,
-                        max_inactive_connection_lifetime=300,
+                        max_inactive_connection_lifetime=cls._MAX_IDLE_SEC,
                         ssl=ctx,
-                        command_timeout=60,
+                        timeout=cls._CONNECT_TIMEOUT_SEC,
+                        command_timeout=cls._COMMAND_TIMEOUT_SEC,
                         server_settings=cls._server_settings,
                         **kwargs,
                     ),
