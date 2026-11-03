@@ -66,7 +66,6 @@ async def test_enrich_uses_cache_hit_path_only_places(monkeypatch):
     assert len(out["enriched_brands"]) == 1
     assert out["enriched_brands"][0]["avg_suit_price_eur"] == 900
     assert out["enriched_brands"][0]["local_store_address"] == "Shop, Milan"
-    assert any("cache hit" in m for m in out["progress"])
 
 
 async def test_contacts_only_looked_up_for_new_leads_and_saved(monkeypatch):

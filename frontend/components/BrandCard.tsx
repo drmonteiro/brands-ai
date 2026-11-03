@@ -679,7 +679,7 @@ export const BrandCard = memo(function BrandCard({ brand, managerName = "Comerci
                         </span>
                       </div>
                       <p className="text-sm text-muted-foreground italic leading-relaxed">
-                        "{fb.comment}"
+                        &ldquo;{fb.comment}&rdquo;
                       </p>
                     </div>
                   ))}

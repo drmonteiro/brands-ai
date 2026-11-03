@@ -173,7 +173,7 @@ export default function ChatDashboard() {
     const renderContent = (text: string) => {
         return text.split("\n").map((line, i) => {
             // Bold: **text**
-            let rendered = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            const rendered = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             // Bullet points
             if (rendered.trim().startsWith("•") || rendered.trim().startsWith("-")) {
                 return (
