@@ -787,6 +787,69 @@ async def update_prospect_contact(prospect_id: str, contact_data: Dict):
         contact_data.get("contact_linkedin"),
         prospect_id)
 
+async def get_active_leads_for_city(city: str) -> List[Dict]:
+    pool = await PostgresManager.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, name, website_url, country, status, store_count
+            FROM prospects
+            WHERE city = $1 AND quality_status = 'active'
+            ORDER BY final_score DESC
+            """,
+            normalize_city(city),
+        )
+    return [dict(row) for row in rows]
+
+
+async def hide_lead(prospect_id: str) -> None:
+    """Out of every list, but kept with its status, notes and feedback. Reversible."""
+    pool = await PostgresManager.get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE prospects SET quality_status = 'hidden', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+            prospect_id,
+        )
+    clear_cities_cache()
+
+
+async def update_lead_after_recheck(prospect_id: str, fields: Dict[str, Any]) -> None:
+    """Refresh a lead's evidence and scores. Status, notes, feedback and contacts aren't touched."""
+    pool = await PostgresManager.get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE prospects SET
+                avg_suit_price_eur = $2,
+                price_note = $3,
+                price_status = $4,
+                price_source_url = $5,
+                price_evidence = $6::jsonb,
+                fit_reason = $7,
+                closest_client = $8,
+                core_category = $9,
+                final_score = $10,
+                similarity_score = $11,
+                fit_score = $12,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            """,
+            prospect_id,
+            fields["avg_suit_price_eur"],
+            fields["price_note"],
+            fields["price_status"],
+            fields["price_source_url"],
+            json.dumps(fields["price_evidence"]),
+            fields["fit_reason"],
+            fields["closest_client"],
+            fields["core_category"],
+            fields["final_score"],
+            fields["similarity_score"],
+            fields["fit_score"],
+        )
+    clear_cities_cache()
+
+
 async def save_lead_rejections(city: str, rows: List[Dict[str, Any]]) -> None:
     """Record why brands were rejected. Must never stop a search from finishing."""
     if not rows:

@@ -32,6 +32,22 @@ const BrandCard = dynamic(
 // localStorage, not sessionStorage, so the first click of a new session shows cities at once.
 const CITIES_CACHE_KEY = "lanca_cities_cache_v1";
 const PROSPECTS_TIMEOUT_MS = 20000;
+const REGENERATE_POLL_MS = 4000;
+
+type RegenerationSummary = {
+    added: number;
+    updated: number;
+    hidden: number;
+    kept_sales_work: number;
+    unverified: number;
+};
+
+function describeRegeneration(s: RegenerationSummary): string {
+    const parts = [`${s.added} novas`, `${s.updated} atualizadas`, `${s.hidden} escondidas`];
+    if (s.kept_sales_work) parts.push(`${s.kept_sales_work} mantidas por já terem contacto`);
+    if (s.unverified) parts.push(`${s.unverified} por verificar`);
+    return parts.join(", ");
+}
 
 function readCitiesCache(): CityData[] | null {
     if (typeof window === "undefined") return null;
@@ -70,6 +86,10 @@ export default function SavedCitiesPage() {
     const [activeFilters, setActiveFilters] = useState<ProspectFilters>({});
     const debouncedFilters = useDebouncedValue(activeFilters, 300);
     const [cityToDelete, setCityToDelete] = useState<string | null>(null);
+    const [cityToRegenerate, setCityToRegenerate] = useState<string | null>(null);
+    const [regeneratingCity, setRegeneratingCity] = useState<string | null>(null);
+    const [regenerationStep, setRegenerationStep] = useState("");
+    const [prospectsVersion, setProspectsVersion] = useState(0);
 
     const fetchCities = useCallback(async (silent = false) => {
         const hasCache = (readCitiesCache()?.length ?? 0) > 0;
@@ -147,7 +167,74 @@ export default function SavedCitiesPage() {
         };
         load();
         return () => { cancelled = true; };
-    }, [selectedCity, debouncedFilters]);
+    }, [selectedCity, debouncedFilters, prospectsVersion]);
+
+    // The search runs on the server, so coming back to a city picks up its progress.
+    useEffect(() => {
+        if (!selectedCity || regeneratingCity) return;
+        let cancelled = false;
+        apiFetch(`/api/prospect/status?city=${encodeURIComponent(selectedCity)}`)
+            .then((response) => (response.ok ? response.json() : null))
+            .then((data) => {
+                if (!cancelled && data?.status === "running") setRegeneratingCity(selectedCity);
+            })
+            .catch(() => { /* the city still shows, without progress */ });
+        return () => { cancelled = true; };
+    }, [selectedCity, regeneratingCity]);
+
+    useEffect(() => {
+        if (!regeneratingCity) return;
+        let cancelled = false;
+        const poll = async () => {
+            while (!cancelled) {
+                await new Promise((resolve) => setTimeout(resolve, REGENERATE_POLL_MS));
+                if (cancelled) return;
+                try {
+                    const response = await apiFetch(`/api/prospect/status?city=${encodeURIComponent(regeneratingCity)}`);
+                    if (!response.ok) continue;
+                    const data = await response.json();
+                    if (cancelled) return;
+                    const steps: string[] = data.progress || [];
+                    if (steps.length) setRegenerationStep(steps[steps.length - 1]);
+                    if (data.status === "running") continue;
+                    setRegeneratingCity(null);
+                    setRegenerationStep("");
+                    if (data.status === "completed") {
+                        toast.success(
+                            data.summary
+                                ? `${regeneratingCity}: ${describeRegeneration(data.summary)}.`
+                                : `${regeneratingCity} atualizada.`,
+                            { duration: 10000 }
+                        );
+                    } else {
+                        toast.error(data.error || "Não foi possível regenerar. Nada foi alterado.");
+                    }
+                    setProspectsVersion((version) => version + 1);
+                    fetchCities(true);
+                    return;
+                } catch (e) {
+                    console.error("[saved-cities] regeneration poll failed:", e);
+                }
+            }
+        };
+        poll();
+        return () => { cancelled = true; };
+    }, [regeneratingCity, fetchCities]);
+
+    const confirmRegenerate = async () => {
+        const city = cityToRegenerate;
+        if (!city) return;
+        setCityToRegenerate(null);
+        try {
+            const response = await apiFetch(`/api/cities/${encodeURIComponent(city)}/regenerate`, { method: "POST" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            setRegenerationStep("A iniciar…");
+            setRegeneratingCity(city);
+        } catch (e) {
+            console.error("[saved-cities] regenerate failed:", e);
+            toast.error("Não foi possível iniciar a regeneração.");
+        }
+    };
 
     const handleExportCSV = async () => {
         if (!selectedCity) return;
@@ -324,6 +411,17 @@ export default function SavedCitiesPage() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
+                                disabled={Boolean(regeneratingCity)}
+                                onClick={() => setCityToRegenerate(selectedCity)}
+                                className="h-8 text-[12px] gap-1.5 rounded-md border-border"
+                            >
+                                <RefreshCw className={`h-3.5 w-3.5 ${regeneratingCity === selectedCity ? "animate-spin" : ""}`} />
+                                Regenerar
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
                                 onClick={handleDeleteCity}
                                 className="h-8 text-[12px] gap-1.5 rounded-md border-border text-muted-foreground hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 transition-colors"
                             >
@@ -333,6 +431,16 @@ export default function SavedCitiesPage() {
                         </div>
                     )}
                 </header>
+
+                {regeneratingCity && (
+                    <div role="status" className="flex items-center gap-2 border-b border-lanca-gold/40 bg-lanca-goldTint px-4 py-2 text-[12px] text-foreground lg:px-6">
+                        <RefreshCw className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-lanca-goldDeep" aria-hidden />
+                        <span className="min-w-0 truncate">
+                            A regenerar <span className="font-medium capitalize">{regeneratingCity}</span>
+                            {regenerationStep ? `: ${regenerationStep}` : ""}
+                        </span>
+                    </div>
+                )}
 
                 <div className="flex-1 p-4 lg:p-8">
                     {!selectedCity ? (
@@ -399,6 +507,32 @@ export default function SavedCitiesPage() {
             </main>
 
             {/* Custom Delete Confirmation Modal */}
+            {cityToRegenerate && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                    <div role="dialog" aria-modal="true" aria-labelledby="regenerate-title" className="w-full max-w-md rounded border border-border bg-white p-6 shadow-2xl">
+                        <h3 id="regenerate-title" className="mb-2 font-serif text-xl font-semibold capitalize text-foreground">
+                            Regenerar {cityToRegenerate}
+                        </h3>
+                        <p className="mb-2 text-sm text-muted-foreground">
+                            Faz uma nova pesquisa com as regras atuais e revê as marcas já guardadas. Demora vários minutos.
+                        </p>
+                        <ul className="mb-6 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                            <li>Marcas que já não cumprem as regras ficam escondidas, sem serem apagadas.</li>
+                            <li>Marcas contactadas ou convertidas nunca são escondidas.</li>
+                            <li>Estados, notas e feedback mantêm-se.</li>
+                        </ul>
+                        <div className="flex justify-end gap-3">
+                            <Button type="button" variant="ghost" onClick={() => setCityToRegenerate(null)} className="h-10 rounded">
+                                Cancelar
+                            </Button>
+                            <Button type="button" onClick={confirmRegenerate} className="h-10 rounded bg-lanca-ink text-white hover:bg-lanca-charcoal">
+                                Regenerar
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {cityToDelete && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
                     <div 
