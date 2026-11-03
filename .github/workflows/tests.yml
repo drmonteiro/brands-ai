@@ -1,0 +1,48 @@
+name: Tests
+
+on:
+  # Called before each deploy, and on every PR through the Static Web Apps workflow.
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Same version as backend/Dockerfile
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+        working-directory: backend
+      - run: pytest -q
+        working-directory: backend
+        env:
+          # Placeholders so clients can be constructed. Tests mock every real call.
+          AZURE_OPENAI_API_KEY: test
+          AZURE_OPENAI_ENDPOINT: https://test.invalid
+          AZURE_OPENAI_API_VERSION: "2024-01-01"
+          AZURE_OPENAI_DEPLOYMENT: test
+          AZURE_OPENAI_DEPLOYMENT_FAST: test
+          AZURE_OPENAI_EMBEDDING_DEPLOYMENT: test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
